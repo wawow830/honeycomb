@@ -18,12 +18,12 @@ Define includes human approval of the definition. Findings from QA or Human revi
 
 | Form | Meaning |
 | --- | --- |
-| Numbered list | Execute the steps in order. |
+| Unbulleted instructions | Execute in order. |
+| Consecutive bullet-point instructions | Execute in parallel at the same indentation. |
 | `skill:<name>` | Load the named skill's instructions. |
-| `run:<prompt>` | Start an agent with the prompt. Returns nothing. |
+| `spawn:<agent> <prompt>` | Start the agent with the prompt without waiting. Model slug comes from `honeycomb/MODELS.md`. Returns nothing. |
 | `wait:<until-condition>` | Wait until the condition holds. |
-| `if <condition>` / `else` | Execute the applicable block. |
-| `parallel` | Execute the indented actions concurrently. |
+| `if <condition>` / `else` | Execute the applicable indented block. |
 | `while <condition>` | Execute the indented block while the condition holds. |
 | `assert <condition>` | Require the condition to hold before proceeding. |
 | `<var-name> = <value>` | Assign a value. |
@@ -33,8 +33,6 @@ Every dispatched agent receives exactly:
 ```text
 /skill:<specific-skill> <YAML_FILE>
 ```
-
-`run:` starts work; `wait:` synchronizes it. A numbered step containing `run:` does not implicitly wait for the agent to finish.
 
 Each skill except the entry-point `honeycomb` reads one YAML file and writes one separate YAML file. The YAML is the package. There is no mandatory envelope or paired input/output wrapper.
 
@@ -51,7 +49,7 @@ The skill specifies its output location. A stage's output can be supplied direct
 
 References connect the two without copying their state. In particular, YAML does not contain a second DAG, task-status field, or approval flag.
 
-Git contains the implementation and production artifacts. `.honeycomb/` is not gitignored. Production work uses its own branch; the branching and workspace strategy is settled before Idea finishes.
+Git contains the implementation and production artifacts. `.honeycomb/` is not gitignored. Each production uses its own branch. Branching is not part of Idea; its placement remains to be aligned.
 
 ## Adapters
 
@@ -59,10 +57,11 @@ Skills describe abstract operations. Project adapters translate them into concre
 
 Examples:
 
-- `run:<prompt>` means start an agent with that prompt; `HARNESS.md` can translate it into `herdr agent start …`.
-- `ticket:<id>` references a tracker work item; `TRACKER.md` can translate it into the relevant GitHub or Linear reference.
-- Taking a frontier node means selecting a node with satisfied dependencies and taking ownership so another worker cannot take the same node. The tracker adapter supplies the concrete procedure.
-- `MODELS.md` supplies model selection for the work being dispatched.
+| Abstract operation | Adapter translation |
+| --- | --- |
+| `spawn:<agent> <prompt>` | `honeycomb/MODELS.md` maps the abstract agent name to a model slug. `honeycomb/HARNESS.md` translates spawning into a concrete operation such as `herdr agent start …`, using that model and prompt. |
+| `ticket:<id>` | `honeycomb/TRACKER.md` resolves the reference to the relevant GitHub or Linear ticket. |
+| Take a frontier node | `honeycomb/TRACKER.md` supplies the concrete procedure for selecting a node with satisfied dependencies and taking ownership so another worker cannot take the same node. |
 
 These are Markdown translations, not an additional adapter framework. Core skills contain no harness-, model-, tracker-, or application-stack-specific commands.
 
@@ -86,6 +85,10 @@ References to files are repository-relative. References identify specific artifa
 
 ## 1. Idea — entry-point Honeycomb
 
+### Purpose
+
+Make sense of what the human says. Interpret the human's intent and ask clarifying questions until it is understood, then express the understood idea in YAML. Do not invent requirements or assess feasibility; feasibility belongs to Validate.
+
 ### Input
 
 The human's idea, not a YAML file.
@@ -93,27 +96,28 @@ The human's idea, not a YAML file.
 ### Output: `idea.yaml`
 
 ```yaml
-id: task-123
-idea: Allow users to export their filtered search results.
+idea: |
+  Users want to export their filtered search results for use in their existing workflow.
 references:
   - docs/product/search.md
-branching:
-  base: main
-  production: task-123
-  workspace_strategy: Separate worker workspaces and branches for parallel work.
 ```
-
-The branching fields record the agreed strategy; they do not prescribe one universal strategy.
 
 ### Procedure
 
-1. Capture the idea and its supporting references from the human.
-2. Load the project adapters needed for this production.
-3. Settle the production branch and worker workspace strategy with the human.
-4. Create the production's tracker record and branch using that strategy.
-5. Write `idea.yaml`.
+```text
+Read what the human says and identify their intended outcome.
+while the human's intent is unclear
+  Ask clarifying questions. Do not substitute assumptions for their answers.
+Write the understood idea to idea.yaml.
+```
+
+The output contains `idea` and, when supplied by the human, `references`. It does not contain a task definition, plan, or branching.
 
 ## 2. Validate
+
+### Purpose
+
+Validate the idea with the human. Establishing whether the idea is worth pursuing and understanding how it can be executed go hand in hand: reconnaissance and research inform both. Answer downstream questions before passing the validated YAML to Define.
 
 ### Input
 
@@ -123,35 +127,41 @@ Idea YAML.
 
 ```yaml
 idea: .honeycomb/task-123/idea.yaml
-intent: Export exactly the results matching the user's current search filters.
-scope:
-  - The existing search-results interface and export endpoint.
-taste:
-  - Follow the existing results-toolbar interaction and visual patterns.
-repository:
-  - path: src/search/
-    relevance: Filtering, result retrieval, and toolbar implementation.
-  - path: tests/search/
-    relevance: Existing compatibility and interaction coverage.
-constraints:
-  - Preserve existing permissions and filtering semantics.
+
+decisions:
+  - question: What should the export contain?
+    answer: All results matching the active filters, not just the visible page.
+    rationale: The human needs the complete filtered dataset.
+
+reconnaissance:
+  - location: src/search/filters.ts
+    finding: Defines the existing filtering behavior that export must preserve.
+
+research: []
+
 verification:
-  - method: Run the existing search compatibility checks.
-    baseline: Passing on the production's starting revision.
-references:
-  - docs/product/search.md
+  - method: Search compatibility tests
+    execution: <repository-specific command>
+    prerequisites: <required setup>
+    baseline: <observed result>
 ```
 
-The fields are an outline, not a limit on reconnaissance. Include the concrete facts downstream work needs: interfaces, commands, patterns, prerequisites, research sources, and agreed decisions where relevant.
+- `idea`: Reference to the Idea YAML; do not repeat its contents.
+- `decisions`: Questions resolved with the human, their answers, and rationale. Covers value, scope, constraints, and human taste.
+- `reconnaissance`: Repository findings needed downstream, with specific file references and explanations.
+- `research`: External findings and sources, when needed.
+- `verification`: Available verification methods, how to execute them, prerequisites, and observed baseline results.
+
+These fields contain resolved decisions and supporting evidence, not a task definition or plan. Reconnaissance and research must be specific enough that downstream agents do not need to repeat them. The example is abbreviated; actual output answers all downstream questions.
 
 ### Procedure
 
-1. Read the idea and its references.
-2. Reconnoiter the relevant repository areas and verification infrastructure.
-3. Research externally when answering the idea's questions requires it.
-4. Validate the idea and intended experience with the human, including taste and unwanted approaches.
-5. Answer downstream questions about scope, constraints, prerequisites, implementation context, and verification. Resolve material uncertainty rather than passing it downstream.
-6. Write the validated YAML with specific navigation and instructions, not a general repository essay.
+```text
+Read the idea and its references.
+Validate with the human, using reconnaissance and research to answer questions as they arise.
+Continue until downstream questions are answered.
+Write the validated YAML.
+```
 
 ## 3. Define
 
@@ -163,51 +173,47 @@ Validated YAML.
 
 ```yaml
 id: task-123
-validated: .honeycomb/task-123/validated-001.yaml
-objective: Let users export their current filtered search results.
 goals:
-  - id: useful-export
-    description: Produce an export usable in the user's existing workflow.
+  - Let users export all results matching their active search filters.
 non_goals:
   - Scheduled or recurring exports.
-success_criteria:
-  - id: filter-correctness
-    requirement: Exported records match the active filters and permissions.
-    assessment: deterministic
-    method: Exercise the established filtering and permission cases.
-    evidence: Passing check results tied to the implementation revision.
-  - id: maintainability
-    requirement: Reuse established search behavior without unnecessary abstractions.
-    assessment: agent
-    method: Review against the repository patterns identified in validation.
-    evidence: Independent review with relevant code references.
-  - id: interaction-quality
-    requirement: The export interaction meets the agreed toolbar behavior and taste.
-    assessment: human
-    method: Review the implemented interaction against the agreed references.
-    evidence: Human review of the implementation revision.
-failure_criteria:
-  - id: unauthorized-export
-    requirement: Export exposes records the user cannot access.
-    assessment: deterministic
-    method: Exercise the established access-control cases.
-    evidence: Results identifying any unauthorized records returned.
+success:
+  - Deterministic checks confirm that exported records match the active filters and permissions.
+  - Independent agent review confirms reuse of established search behavior without unnecessary abstractions.
+  - Human review accepts the export interaction against the agreed behavior and taste.
+failure:
+  - Export exposes records the user cannot access.
+  - Export omits matching records or includes records outside the active filters.
 ```
 
-Assessment methods are not restricted to a closed list. Goals may also carry assessment information when useful. Success criteria state what must hold; failure criteria state what must not occur.
+The output contains exactly five fields:
+
+- `id`: The production's tracker ticket ID, not a separate identity.
+- `goals`: Intended outcomes.
+- `non_goals`: Explicitly excluded outcomes.
+- `success`: Conditions that must hold.
+- `failure`: Conditions that must not occur.
+
+Goals, success, and failure can involve deterministic checks, agent review, human review, or other assessment methods. State how they will be assessed where needed, without imposing a separate criterion schema. Human-owned judgments remain human-owned.
 
 ### Procedure
 
-1. Read the validated context and relevant references.
-2. State the objective, goals, non-goals, success criteria, and failure criteria.
-3. Give each criterion a specific assessment method and required evidence. Preserve human-owned judgments rather than substituting agent judgments.
-4. Check that the definition is bounded, internally consistent, and verifiable.
-5. Write the definition YAML and present that exact artifact for human approval through the tracker.
-6. `wait:<human approval of this definition artifact>`
+```text
+Read the validated YAML and relevant references.
+Create the production's tracker ticket and use its ID as the definition's id.
+Write goals, non-goals, success, and failure from the validated decisions.
+Check that the definition is bounded, internally consistent, and verifiable.
+Write the definition YAML and present it for human approval through the tracker.
+wait:<human approval of this definition artifact>
+```
 
 Planning requires approval of the referenced definition, not a generic approval of the idea.
 
 ## 4. Plan
+
+### Purpose
+
+Turn the approved definition, or review findings, into a DAG of small, bounded, independently verifiable vertical slices. Each node delivers an end-to-end outcome across the layers needed for that outcome, including verification. Do not divide the work into separate frontend, backend, and test nodes merely by layer.
 
 ### Input
 
@@ -217,90 +223,131 @@ An approved definition, or a review YAML containing findings and a reference to 
 
 ```yaml
 definition: .honeycomb/task-123/definition-001.yaml
-source: .honeycomb/task-123/definition-001.yaml
-assignments:
-  - ticket: node-124
-    objective: Implement the filtered export endpoint.
-    criteria:
-      - filter-correctness
-      - unauthorized-export
-      - maintainability
-    instructions:
-      - Reuse the existing filtering and permission path identified in validation.
-      - Add coverage for the established filtering and access-control cases.
-      - Run the relevant verification and record the results.
-    context:
+nodes:
+  - id: node-124
+    goals:
+      - Users can export all results matching their active filters from the search interface.
+    instructions: |
+      Read the existing filtering behavior and search interface patterns in the references.
+      Implement export using the existing filtering and permission behavior.
+      Connect export to the existing search interface using the agreed interaction patterns.
+      Add coverage for exporting filtered results and enforcing permissions through this interaction.
+      Run verification and record the results.
+    verification:
+      - Run the search compatibility tests using the execution details established in Validate.
+      - Verify that the export interaction includes all matching results and excludes unauthorized records.
+    references:
+      - .honeycomb/task-123/validated-001.yaml
+      - src/search/filters.ts
       - src/search/
       - tests/search/
 ```
 
-For repair planning, `source` references the review artifact. Dependencies live only in the tracker. Instructions reference definition criteria instead of restating them.
+The output contains `definition` and `nodes`. Each node contains:
+
+- `id`: The node's tracker ticket ID.
+- `goals`: The node's intended outcomes within the approved definition.
+- `instructions`: A YAML literal block containing Honeycomb instructions. Unbulleted instructions execute in order; consecutive bullet-point instructions execute in parallel.
+- `verification`: How to verify the node's outcomes.
+- `references`: The specific context needed to execute the node without repeating reconnaissance or research.
+
+Dependencies, ownership, and status live only in the tracker. Plan does not implement.
 
 ### Procedure
 
-1. Read the approved definition and validated context.
-2. If the input is a review, read its findings and implementation evidence.
-3. Divide the required work into small, bounded, independently verifiable outcomes.
-4. Create the work items and dependency edges in the tracker. Integration, if needed, is an ordinary node with its own instructions and verification.
-5. Give each node specific instructions, relevant context, applicable criteria, and verification work. Establish the prerequisites that make it executable when it reaches the frontier.
-6. Check that the graph is acyclic and collectively covers the required work.
-7. Write the plan YAML and associate its assignments with the tracker nodes.
+```text
+Read the approved definition and relevant Validate output.
+if the input is a review
+  Read its findings and implementation evidence.
+Divide the required work into small, bounded, independently verifiable vertical slices.
+Create the nodes and dependencies in the tracker. Integration, if needed, is an ordinary node with its own instructions and verification.
+Give each node goals, ordered instructions, verification, and references. Establish the prerequisites that make it executable when it reaches the frontier.
+Check that the DAG is acyclic and covers the required work, including the definition's relevant goals, success, and failure.
+Write the Plan YAML and link it from the tracker nodes.
+```
 
 ## 5. Implement
 
+### Purpose
+
+Execute the existing plan and produce the complete implementation. Plan creates and changes the DAG; Implement executes it.
+
+The Implement skill contains two instruction files:
+
+- `SKILL.md`: Spawn workers for open frontier nodes, wait for completion, and write one implementation YAML for QA.
+- `WORKER.md`: Take one open frontier node, execute its instructions and verification, and write its node YAML.
+
 ### Input
 
-Plan YAML.
+Plan YAML. Each worker receives the same Plan YAML and executes only the node it takes through the tracker.
 
 ### Output: `implementation-<n>.yaml`
 
 ```yaml
-definition: .honeycomb/task-123/definition-001.yaml
 plan: .honeycomb/task-123/plan-001.yaml
-implementation_revision: def5678
 evidence:
   - .honeycomb/task-123/implementation/node-124.yaml
   - .honeycomb/task-123/implementation/node-125.yaml
   - .honeycomb/task-123/implementation/node-126.yaml
 ```
 
-Implement covers the entire process from the plan to the complete implementation. It may produce intermediate node YAML files, but finishes with one YAML file for QA. Evidence references preserve the detail without copying node results or the tracker DAG.
+The output contains `plan` and `evidence`. It references the worker outputs rather than copying their contents. QA receives this single YAML file and follows its references.
 
-### Procedure
+### `SKILL.md` procedure
 
-1. Read the plan and its approved definition.
-2. While the plan has unfinished work in the tracker:
-   1. If there is open frontier work, start separate node agents, each with `/skill:<node-skill> <plan-YAML>`. Use parallel execution for independent work when it reduces time without compromising quality.
-   2. `wait:<a running node agent has finished>`
-3. Assert that all nodes are complete and their implementation is present on the production branch. Integration work, when needed, has already been executed as ordinary DAG nodes.
-4. Write one implementation YAML identifying the complete implementation revision and referencing the node evidence.
-
-### Node agent procedure
-
-Each node agent reads the plan YAML and writes `implementation/<node-id>.yaml`.
-
-```yaml
-plan: .honeycomb/task-123/plan-001.yaml
-ticket: node-124
-implementation_revision: abc1234
-changes:
-  - Added the export endpoint using existing filtering and permission behavior.
-evidence:
-  - criterion: filter-correctness
-    method: Existing filtering cases plus export coverage.
-    result: All cases passed.
-    reference: .honeycomb/task-123/evidence/node-124-tests.txt
+```text
+Read the Plan YAML and its approved definition.
+while the plan has unfinished nodes in the tracker
+  if there are open frontier nodes
+    Spawn separate workers using WORKER.md and the Plan YAML for the available nodes.
+  wait:<a running worker has finished>
+wait:<all workers have finished>
+assert all nodes are complete and their implementation is present on the production branch
+Write one implementation YAML referencing the Plan YAML and worker outputs.
 ```
 
-1. Resolve the production through the plan's definition reference and use the tracker to take the next open frontier node belonging to this plan.
-2. Read that node's assignment, the applicable definition criteria, and the necessary referenced context.
-3. Use the workspace established by the production's branching strategy.
-4. Implement this node only, following its instructions and the repository's established patterns.
-5. Run the relevant external verification and use its feedback to satisfy the assignment.
-6. Record the implementation revision and concrete verification evidence in the output YAML.
-7. Link the output from the tracker node and complete the node once its assignment is satisfied.
+Integration, when needed, is executed as ordinary DAG nodes.
 
-Each node gets a separate implementation agent. Node completion does not constitute independent QA or production acceptance. A check result is evidence, not a copy of tracker work status.
+### `WORKER.md` output: `implementation/<node-id>.yaml`
+
+```yaml
+id: node-124
+changes:
+  - Implemented the filtered export interaction.
+verification:
+  - method: Search compatibility tests
+    result: All tests passed.
+    evidence: .honeycomb/task-123/evidence/node-124-tests.txt
+```
+
+The worker output contains `id`, `changes`, and `verification`. Verification records methods, observed results, and supporting evidence, not tracker status.
+
+### `WORKER.md` procedure
+
+```text
+Resolve the production through the Plan YAML's definition reference.
+Take one open frontier node through the tracker.
+Read the node's goals, instructions, verification, and references, and the relevant definition content.
+Read prerequisite evidence through the tracker node's artifact links when needed.
+Use the production's agreed workspace.
+Execute this node's instructions and verification, using verification feedback to satisfy its goals.
+Write the node YAML with its id, changes, and verification results.
+Link the node YAML from the tracker node and complete the node once its goals and verification are satisfied.
+```
+
+Each node gets a separate worker. Node completion does not constitute independent QA or production acceptance.
+
+### YAML inter-agent communication
+
+```text
+Plan YAML → SKILL.md
+               ├→ WORKER.md → node YAML
+               ├→ WORKER.md → node YAML
+               └→ WORKER.md → node YAML
+               └→ implementation YAML → QA
+```
+
+Files are passed by reference, not through chat or agent return values. No separate assignment wrapper is needed. YAML carries content and evidence; the tracker owns dependencies, ownership, status, and artifact links.
 
 ## 6. QA
 
@@ -331,12 +378,14 @@ Every applicable success and failure criterion receives an assessment; this exam
 
 ### Procedure
 
-1. Read the approved definition and its context in a fresh agent context.
-2. Read the implementation YAML and its referenced evidence, and inspect the complete implementation.
-3. Independently execute applicable deterministic verification and perform the required agent assessments. Do not accept implementer claims as sufficient evidence.
-4. Assess both success criteria and failure criteria against the identified implementation revision.
-5. Write concrete findings, criterion assessments, and evidence to QA YAML. Identify criteria requiring human review without inventing a human verdict.
-6. Link the review artifact in the tracker. Leave repair decomposition to Plan.
+```text
+Read the approved definition and its context in a fresh agent context.
+Read the implementation YAML and its referenced evidence, and inspect the complete implementation.
+Independently execute applicable deterministic verification and perform the required agent assessments. Do not accept implementer claims as sufficient evidence.
+Assess both success criteria and failure criteria against the identified implementation revision.
+Write concrete findings, criterion assessments, and evidence to QA YAML. Identify criteria requiring human review without inventing a human verdict.
+Link the review artifact in the tracker. Leave repair decomposition to Plan.
+```
 
 ## 7. Human review
 
@@ -361,12 +410,14 @@ The YAML records human observations and findings faithfully. The tracker owns th
 
 ### Procedure
 
-1. Read the definition, complete implementation evidence, and independent QA review.
-2. Assert that required automated and agent assessments are satisfied for the implementation under review.
-3. Present the implementation and evidence to the human, including the human-owned criteria and taste constraints.
-4. `wait:<the human has reviewed the implementation and provided a decision and any findings>`
-5. Write the human assessments and findings to review YAML without converting them into repair assignments.
-6. Associate the human decision and review artifact with the reviewed revision in the tracker.
+```text
+Read the definition, complete implementation evidence, and independent QA review.
+assert required automated and agent assessments are satisfied for the implementation under review
+Present the implementation and evidence to the human, including the human-owned criteria and taste constraints.
+wait:<the human has reviewed the implementation and provided a decision and any findings>
+Write the human assessments and findings to review YAML without converting them into repair assignments.
+Associate the human decision and review artifact with the reviewed revision in the tracker.
+```
 
 Findings go to Plan. Approval permits Ship. Human review does not merge.
 
@@ -386,10 +437,12 @@ merge_reference: https://example.invalid/project/pull/123
 
 ### Procedure
 
-1. Read the human review YAML and its referenced QA evidence.
-2. Assert that the implementation being shipped is the implementation independently reviewed and approved by the human in the tracker.
-3. Merge using the agreed project procedure.
-4. Write the ship YAML and link it from the production's tracker record.
+```text
+Read the human review YAML and its referenced QA evidence.
+assert the implementation being shipped is the implementation independently reviewed and approved by the human in the tracker
+Merge using the agreed project procedure.
+Write the ship YAML and link it from the production's tracker record.
+```
 
 Ship ships approved work. It does not conduct human review or produce repair findings.
 

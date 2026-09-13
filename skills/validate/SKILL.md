@@ -4,18 +4,9 @@ description: "Determine with the human whether the idea is worth pursuing and fe
 disable-model-invocation: true
 ---
 
-```text
-`Read` `input`.
-`Read` its references.
-`Read` `//honeycomb/HARNESS.md`.
-`Write` `=/validate/`.
-
-- `Agent Spawn` `recon_id` `recon_model` `=/` `/skill:recon <input>`.
-- `Agent Spawn` `research_id` `research_model` `=/` `/skill:research <input>`.
-
-`Wait` agent `recon_id` is finished and agent `research_id` is finished.
-`Assert` agents `recon_id` and `research_id` completed their assigned prompts normally.
-`Read` `=/validate/recon.yaml` and `=/validate/research.yaml`.
-`Determine` with human whether idea is worth pursuing and feasible, resolving scope and tradeoffs using the findings.
-`Write` `=/validate/validate.yaml` using `^/TEMPLATE.yaml`.
-```
+1. Read the input YAML and its references.
+2. Create `validate/` in the destination pass directory.
+3. Use the project's harness and model adapters to start `recon` and `research` agents in parallel, with the same input and working directory.
+4. Wait for both agents to stop, confirm normal completion, then read `validate/recon.yaml` and `validate/research.yaml` from that directory.
+5. Determine with the human whether the idea is worth pursuing and feasible, resolving scope and tradeoffs using the findings.
+6. Write `validate/validate.yaml` in the destination pass directory using [TEMPLATE.yaml](TEMPLATE.yaml).

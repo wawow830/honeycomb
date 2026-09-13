@@ -1,0 +1,14 @@
+idea: <reference to idea YAML>
+decisions:
+  - question: <question resolved with the human>
+    answer: <answer>
+    rationale: <reasoning>
+reconnaissance:
+  - location: <repository reference>
+    finding: <finding>
+research: [] # External findings and sources, when needed.
+verification:
+  - method: <verification method>
+    execution: <command>
+    prerequisites: <required setup>
+    baseline: <observed result>

@@ -16,53 +16,13 @@ Define includes human approval of the definition. In-scope QA findings and human
 
 ## Execution language
 
-Parallel execution applies to bullet-point instructions in skill procedures and node `instructions`, not descriptive lists or YAML sequences.
+[Honeycomb's execution language](../skills/honeycomb/SKILL.md#syntax) defines instruction syntax, bindings, and paths.
 
-| Form | Meaning |
-| --- | --- |
-| Unbulleted instructions | Execute in order. |
-| Consecutive bullet-point instructions | Execute in parallel at the same indentation. |
-| `skill:<name>` | Load the named skill's instructions. |
-| `agent spawn <id> <model> <cwd> <prompt>` | Start a fresh agent with the caller-chosen ID, model, working directory, and initial prompt. Nonblocking; returns nothing. Model slug comes from `//honeycomb/MODELS.md`. |
-| `agent kill <id>` | Terminate the agent. |
-| `agent set-model <id> <model>` | Change the model for subsequent prompts. |
-| `agent prompt queue <id> <prompt>` | Queue a prompt to run after the current prompt. Nonblocking. |
-| `agent prompt interrupt <id> <prompt>` | Stop current execution and process the new prompt. Nonblocking. |
-| `agent list` | Return agent IDs, models, working directories, and execution states, distinguishing normal completion from interruption or termination. |
-| `wait: <condition>` | Wait until the condition holds. |
-| `if <condition>` / `else` | Execute the applicable indented block. |
-| `while <condition>` | Execute the indented block while the condition holds. |
-| `assert <condition>` | Require the condition to hold before proceeding. |
-| `<var-name> = <value>` | Assign a value. |
+Every newly dispatched agent receives exactly `/skill:<specific-skill> <YAML_FILE>` as its initial prompt.
 
-Every newly dispatched agent receives exactly this initial prompt:
+Each skill except the entry-point `honeycomb` reads one YAML input package and writes one separate YAML output package. Supporting files and child-agent handoffs are allowed; no mandatory envelope or paired wrapper is required.
 
-```text
-/skill:<specific-skill> <YAML_FILE>
-```
-
-Each skill except the entry-point `honeycomb` reads one YAML input package and writes one separate YAML output package. This does not prohibit supporting files or child-agent handoffs. There is no mandatory envelope or paired input/output wrapper.
-
-The skill specifies its output location. A stage's output can be supplied directly to another skill. An output file's mere existence is not proof that its writer has completed its prompt.
-
-### Agent lifecycle
-
-An agent is **finished** when execution has stopped, whether normally, interrupted, killed, or crashed. Its assigned prompt is **complete** only when it reaches normal completion. Completion implies finished; finished does not imply completion. Agent completion does not establish node completion, which requires verified goals and published deliverables in the tracker.
-
-`wait: agent <id> is finished` waits for execution to stop, not for successful work. The harness adapter uses native waiting or polls `agent list`. There is no separate `agent wait` command.
-
-The model supplied to `agent spawn` must be configured before its initial prompt runs. The adapter may configure it during creation or create the agent, set its model, then submit the prompt.
-
-### Paths
-
-| Prefix | Relative to |
-| --- | --- |
-| `//` | Repository root in the agent's current worktree. |
-| `./` | Agent working directory. |
-| `~/` | User home directory. |
-| `/` (without a second `/`) | Filesystem root; an absolute path. |
-
-`//` is Honeycomb notation, not native shell expansion. Skills and adapters resolve it before passing paths to filesystem tools. Invocation inputs and repository-file references in YAML use `//` so they remain independent of the agent's working directory.
+Skills specify output locations. Stage handoffs require normal prompt completion and a readable output matching the skill's package contract.
 
 ## Ownership
 
@@ -87,9 +47,9 @@ Examples:
 
 | Abstract operation | Adapter translation |
 | --- | --- |
-| `agent spawn <id> <model> <cwd> <prompt>` | `//honeycomb/MODELS.md` maps the agent role to a model slug. `//honeycomb/HARNESS.md` translates spawning into a concrete operation such as `herdr agent start …`, preserving the caller-chosen ID, model, prompt, and working directory. |
-| `agent kill`, `agent set-model`, `agent prompt queue`, `agent prompt interrupt`, `agent list` | `//honeycomb/HARNESS.md` translates agent control and observation into native harness operations with the shared semantics above. |
-| `wait: agent <id> is finished` | `//honeycomb/HARNESS.md` uses native waiting or polls `agent list` until execution has stopped, preserving the distinction between finished and complete. |
+| `` `Agent Spawn` <id> <model> <cwd> <prompt>. `` | `//honeycomb/MODELS.md` maps the agent role to a model slug. `//honeycomb/HARNESS.md` translates spawning into a concrete operation such as `herdr agent start …`, preserving the caller-chosen ID, model, prompt, and working directory. |
+| `Agent Kill`, `Agent Set-Model`, `Agent Prompt Queue`, `Agent Prompt Interrupt`, `Agent List` | `//honeycomb/HARNESS.md` translates agent control and observation into native harness operations with Honeycomb's shared semantics. |
+| `` `Wait` agent `<id>` is finished. `` | `//honeycomb/HARNESS.md` uses native waiting or polls `Agent List` until execution has stopped, preserving the distinction between finished and complete. |
 | `ticket:<id>` | `//honeycomb/TRACKER.md` resolves the reference to the relevant GitHub or Linear ticket. |
 | Take a frontier node | `//honeycomb/TRACKER.md` supplies the concrete procedure for selecting a node with satisfied dependencies and taking ownership so another worker cannot take the same node. |
 | Prepare a worker workspace | The project's workspace adapter creates an isolated Git worktree and branch for the worker, with its node input and references available, and resolves prerequisite code and evidence through the tracker nodes' branch and artifact links. |
@@ -103,9 +63,10 @@ These are Markdown translations, not an additional adapter framework. Core skill
 Upon receiving the human's idea, entry-point Honeycomb establishes the production before executing the stages:
 
 ```text
-Create the production's tracker ticket for the human's idea.
-Use the ticket ID to create the production branch and `//.honeycomb/<production-id>/`.
-Use the production branch and production directory, and execute the workflow, starting with Idea.
+`Create` the production's tracker ticket for the human's idea.
+`Use` the ticket ID to create the production branch.
+`Write` `//.honeycomb/<production-id>/`.
+`Use` the production branch and production directory, and execute the workflow, starting with Idea.
 ```
 
 The ticket tracks the production from the start. Define later attaches the formal definition to this existing ticket for human approval.
@@ -118,7 +79,10 @@ Production artifacts live under `//.honeycomb/<production-id>/`, where `<product
 //.honeycomb/<production-id>/
 ├── idea.yaml
 ├── pass-<n>/
-│   ├── validate.yaml
+│   ├── validate/
+│   │   ├── validate.yaml
+│   │   ├── recon.yaml
+│   │   └── research.yaml
 │   ├── define.yaml
 │   ├── plan/
 │   │   ├── plan.yaml
@@ -133,15 +97,15 @@ Production artifacts live under `//.honeycomb/<production-id>/`, where `<product
 └── ship.yaml
 ```
 
-Entry-point Honeycomb creates the first pass before Validate and chooses the next unused pass number for each feedback iteration. It launches Validate through Human review with the destination pass directory as their working directory through the harness adapter. Their `./` output paths are relative to that directory, not the input file's directory. Only stages executed in that pass write outputs there. Unchanged inputs reference their existing artifacts in earlier passes rather than copying them.
+Entry-point Honeycomb creates the first pass before Validate and chooses the next unused pass number for each feedback iteration. It launches Validate through Human review with the destination pass directory as their working directory through the harness adapter. Their `=/` output paths are relative to that directory, not the input file's directory. Only stages executed in that pass write outputs there. Unchanged inputs reference their existing artifacts in earlier passes rather than copying them.
 
 ```text
-Working directory: //.honeycomb/task-123/pass-002/
-Prompt: /skill:plan //.honeycomb/task-123/pass-001/qa.yaml
-Output: ./plan/plan.yaml
+Working directory: `//.honeycomb/task-123/pass-002/`
+Prompt: `/skill:plan //.honeycomb/task-123/pass-001/qa.yaml`
+Output: `=/plan/plan.yaml`
 ```
 
-Worker outputs live in the same pass as their node inputs, mirroring `./plan/nodes/` under `./implement/nodes/`. Repair work gets new tracker nodes, rather than rewriting previous results.
+Implementation worker outputs live in the same pass as their node inputs, mirroring `=/plan/nodes/` under `=/implement/nodes/`. Repair work gets new tracker nodes, rather than rewriting previous results.
 
 `idea.yaml` and `ship.yaml` belong to the production, not a pass. Idea executes in the production directory, and Honeycomb launches Ship there. `ship` references the approved pass's `review`.
 
@@ -157,7 +121,7 @@ Capture the human's idea.
 
 The human's idea, not a YAML file.
 
-### Output: `./idea.yaml`
+### Output: `=/idea.yaml`
 
 ```yaml
 idea: |
@@ -169,10 +133,10 @@ references:
 ### Procedure
 
 ```text
-Read what the human says and identify their intended outcome.
-while the human's intent is unclear
-  Ask clarifying questions. Do not substitute assumptions for their answers.
-Write the understood idea to `./idea.yaml`.
+`Read` what the human says and identify their intended outcome.
+`While` the human's intent is unclear.
+  `Ask` clarifying questions rather than assume answers.
+`Write` `=/idea.yaml` with the understood idea.
 ```
 
 The output contains `idea` and, when supplied by the human, `references`. It does not contain a task definition, plan, or branching.
@@ -181,13 +145,17 @@ The output contains `idea` and, when supplied by the human, `references`. It doe
 
 ### Purpose
 
-Validate the idea.
+Determine with the human whether the idea is worth pursuing and feasible, resolving scope and tradeoffs using evidence.
+
+`validate` is both the human-facing validation agent and the coordinator. It delegates repository exploration and external research to separate `recon` and `research` agents, which run concurrently with the same input and destination pass directory.
+
+`recon` writes `=/validate/recon.yaml` containing `reconnaissance` and `verification`. `research` writes `=/validate/research.yaml` containing `research`. `validate` uses their findings and the human discussion to produce its output below.
 
 ### Input
 
 `idea` YAML, or `qa` or `review` YAML containing required changes to the approved scope. For `review`, these are changes requested by the human.
 
-### Output: `./validate.yaml`
+### Output: `=/validate/validate.yaml`
 
 ```yaml
 idea: //.honeycomb/task-123/idea.yaml
@@ -221,12 +189,21 @@ These fields contain resolved decisions and supporting evidence, not a task defi
 ### Procedure
 
 ```text
-if the input is `idea`
-  Read `idea` and its references.
-else
-  Read the feedback, its referenced `define`, and the associated `validate` output and `idea`.
-Validate the idea with the human, using reconnaissance and research to answer questions as they arise.
-Write `validate`.
+`If` `input` is `idea`.
+  `Read` `idea` and its references.
+`Else`.
+  `Read` the feedback, its referenced `define`, and the associated `validate` output and `idea`.
+`Read` `//honeycomb/HARNESS.md`.
+`Write` `=/validate/`.
+
+- `Agent Spawn` `recon_id` `recon_model` `=/` `/skill:recon <input>`.
+- `Agent Spawn` `research_id` `research_model` `=/` `/skill:research <input>`.
+
+`Wait` agent `recon_id` is finished and agent `research_id` is finished.
+`Assert` agents `recon_id` and `research_id` completed their assigned prompts normally.
+`Read` `=/validate/recon.yaml` and `=/validate/research.yaml`.
+`Determine` with human whether idea is worth pursuing and feasible, resolving scope and tradeoffs using the findings.
+`Write` `=/validate/validate.yaml`.
 ```
 
 ## 3. Define
@@ -239,7 +216,7 @@ Define the task: goals, non-goals, success, and failure.
 
 `validate` YAML.
 
-### Output: `./define.yaml`
+### Output: `=/define.yaml`
 
 ```yaml
 id: task-123
@@ -269,13 +246,13 @@ Goals, success, and failure can involve deterministic checks, agent review, huma
 ### Procedure
 
 ```text
-Read `validate` and relevant references.
-Use the existing production ticket's ID as `id`.
-Write `goals`, `non_goals`, `success`, and `failure` from the validated decisions.
-Check that `define` is bounded, internally consistent, and verifiable.
-Write `define` and link it from the existing production ticket, associating it with its specific `validate` input.
-Present `define` for human approval through the tracker.
-wait: human approval of this `define` artifact
+`Read` `validate` and relevant references.
+`Use` the existing production ticket's ID as `id`.
+`Write` `goals`, `non_goals`, `success`, and `failure` from the validated decisions.
+`Check` that `define` is bounded, internally consistent, and verifiable.
+`Write` `define` and link it from the existing production ticket, associating it with its specific `validate` input.
+`Present` `define` for human approval through the tracker.
+`Wait` human approval of this `define` artifact.
 ```
 
 Planning requires approval of the referenced definition, not a generic approval of the idea.
@@ -292,7 +269,7 @@ Represent the work as a DAG of small, bounded, independently verifiable nodes. F
 
 An approved `define`, or `qa` or `review` YAML referencing `define` and containing in-scope QA findings or human-requested changes.
 
-### Output: `./plan/plan.yaml`
+### Output: `=/plan/plan.yaml`
 
 ```yaml
 define: //.honeycomb/task-123/pass-001/define.yaml
@@ -301,17 +278,17 @@ nodes:
     goals:
       - Users can export all results matching their active filters from the search interface.
     instructions: |
-      Read the existing filtering behavior and search interface patterns in the references.
-      Implement export using the existing filtering and permission behavior.
-      Connect export to the existing search interface using the agreed interaction patterns.
-      Add coverage for exporting filtered results and enforcing permissions through this interaction.
-      Run verification and record the results.
+      `Read` the existing filtering behavior and search interface patterns in the references.
+      `Implement` export using the existing filtering and permission behavior.
+      `Connect` export to the existing search interface using the agreed interaction patterns.
+      `Add` coverage for exporting filtered results and enforcing permissions through this interaction.
+      `Run` verification and record the results.
     verification:
       - Run the search compatibility tests using the execution details established in Validate.
       - Verify that the export interaction includes all matching results and excludes unauthorized records.
     references:
       - //.honeycomb/task-123/pass-001/define.yaml
-      - //.honeycomb/task-123/pass-001/validate.yaml
+      - //.honeycomb/task-123/pass-001/validate/validate.yaml
       - //src/search/filters.ts
       - //src/search/
       - //tests/search/
@@ -330,14 +307,17 @@ Dependencies, ownership, and status live only in the tracker. Plan does not impl
 ### Procedure
 
 ```text
-Read the approved `define` and relevant `validate` output.
-if the input is `qa` or `review`
-  Read its findings and implementation evidence. For `review`, distinguish required changes from nonblocking feedback using the human's decision in the tracker.
-Divide the required work into small, bounded, independently verifiable nodes, using vertical slices for feature work.
-Create the nodes and dependencies in the tracker, including ordinary integration nodes with instructions and verification for combining worker branches and their evidence onto the production branch.
-Give each node goals, ordered instructions, verification, and references. Establish the prerequisites that make it executable when it reaches the frontier.
-Check that the DAG is acyclic and covers the required work, including the definition's relevant goals, success, and failure.
-Write `plan` and link it from the tracker nodes.
+`Read` the approved `define` and relevant `validate` output.
+`If` `input` is `qa` or `review`.
+  `Read` its findings and implementation evidence.
+  `If` `input` is `review`.
+    `Distinguish` required changes from nonblocking feedback using the human's tracker decision.
+`Divide` the required work into small, bounded, independently verifiable nodes, using vertical slices for feature work.
+`Create` the nodes and dependencies in the tracker, including ordinary integration nodes with instructions and verification for combining worker branches and their evidence onto the production branch.
+`Give` each node goals, ordered instructions, verification, and references.
+`Establish` the prerequisites that make each node executable when it reaches the frontier.
+`Check` that the DAG is acyclic and covers the required work, including the definition's relevant goals, success, and failure.
+`Write` `plan` and link it from the tracker nodes.
 ```
 
 ## 5. Implement
@@ -359,7 +339,7 @@ Both use the standard `/skill:<specific-skill> <YAML_FILE>` invocation.
 
 `plan` YAML. `implement` selects and assigns work; each `implement-worker` receives only its assigned node YAML.
 
-### Output: `./implement/implement.yaml`
+### Output: `=/implement/implement.yaml`
 
 ```yaml
 plan: //.honeycomb/task-123/pass-001/plan/plan.yaml
@@ -377,19 +357,18 @@ QA, Human review, and Ship follow their existing package references to this sour
 ### `implement` procedure
 
 ```text
-Read `plan` and its approved `define`.
-worker_model = model slug for implement-worker from //honeycomb/MODELS.md
-while `plan` has incomplete nodes in the tracker
-  while there are open frontier nodes
-    Take the next open frontier node through the tracker for a separate worker.
-    Write the selected node from `plan` to `//.honeycomb/<production-id>/pass-<n>/plan/nodes/<node-id>.yaml` in the input plan's directory.
-    agent spawn <node-id> worker_model //.honeycomb/<production-id>/pass-<n>/ "/skill:implement-worker //.honeycomb/<production-id>/pass-<n>/plan/nodes/<node-id>.yaml"
-  workers = agent list
-  if any workers dispatched for this plan are still running
-    wait: one of those workers is finished
-wait: all workers dispatched for this plan are finished
-assert all nodes are complete and their implementation is present on the production branch
-Write `implement` with the `plan` reference, the complete implementation's Git commit as `revision`, and references to worker outputs as `evidence`.
+`Read` `plan` and its approved `define`.
+`While` `plan` has incomplete nodes in the tracker.
+  `While` there are open frontier nodes.
+    `Take` the next open frontier node through the tracker for a separate worker.
+    `Write` `//.honeycomb/<production-id>/pass-<n>/plan/nodes/<node-id>.yaml` in the input plan's directory with the selected node from `plan`.
+    `Agent Spawn` `<node-id>` `implement_worker_model` `//.honeycomb/<production-id>/pass-<n>/` `/skill:implement-worker //.honeycomb/<production-id>/pass-<n>/plan/nodes/<node-id>.yaml`.
+  `workers` = `Agent List`.
+  `If` any workers dispatched for this plan are still running.
+    `Wait` one of those workers is finished.
+`Wait` all workers dispatched for this plan are finished.
+`Assert` all nodes are complete and their implementation is present on the production branch.
+`Write` `implement` with the `plan` reference, the complete implementation's Git commit as `revision`, and references to worker outputs as `evidence`.
 ```
 
 Each implementation worker uses an isolated Git worktree and branch. Plan's ordinary integration nodes combine implementation and evidence onto the production branch through the workspace adapter's safe update operation. Workspace creation, concrete Git operations, and any serialization strategy belong to the adapter.
@@ -415,14 +394,14 @@ The worker output contains `id`, `changes`, and `verification`. Verification rec
 ### `implement-worker` procedure
 
 ```text
-Read `id`, `goals`, `instructions`, `verification`, and `references` from the assigned node YAML, including the relevant `define`.
-Read prerequisite evidence through the tracker node's artifact links when needed.
-Prepare and use an isolated worker workspace through the project's workspace adapter.
-Execute `instructions` and `verification`, using verification feedback to satisfy `goals`.
-Write `//.honeycomb/<production-id>/pass-<n>/implement/nodes/<node-id>.yaml` in the input node's pass with `id`, `changes`, and `verification` results.
-Publish the implementation, evidence YAML, and supporting evidence on the worker's branch through the workspace adapter.
-Link the worker's branch and its evidence from the tracker node.
-Complete the node once its goals and verification are satisfied and its committed deliverables are available to downstream workers.
+`Read` `id`, `goals`, `instructions`, `verification`, and `references` from the assigned node YAML, including the relevant `define`.
+`Read` prerequisite evidence through the tracker node's artifact links when needed.
+`Prepare` and use an isolated worker workspace through the project's workspace adapter.
+`Execute` `instructions` and `verification`, using verification feedback to satisfy `goals`.
+`Write` `//.honeycomb/<production-id>/pass-<n>/implement/nodes/<node-id>.yaml` in the input node's pass with `id`, `changes`, and `verification` results.
+`Publish` the implementation, evidence YAML, and supporting evidence on the worker's branch through the workspace adapter.
+`Link` the worker's branch and its evidence from the tracker node.
+`Complete` the node once its goals and verification are satisfied and its committed deliverables are available to downstream workers.
 ```
 
 Each node gets a separate worker. Workers execute assigned nodes rather than selecting work from the DAG. Completion means the node's implementation and evidence are committed and accessible through its tracker links, not merely present in a private worktree. Node completion does not constitute independent QA or production acceptance.
@@ -451,13 +430,13 @@ Define and QA are primarily qualitative: Define expresses goals, non-goals, succ
 
 Plan and Implement are primarily quantitative: Plan translates the definition into bounded work with meaningful deterministic verification; Implement uses tests, type checks, CI, and other external verifiers in a fast feedback loop. Passing checks does not establish qualitative quality.
 
-QA exercises independent engineering judgment within human intent and taste.
+These are emphases, not exclusive responsibilities: engineering judgment and executable verification are needed throughout. QA exercises independent engineering judgment within human intent and taste.
 
 ### Input
 
 The `implement` YAML provides `revision` and a reference to `plan`, which references `define`. QA uses `define`, relevant `validate` output, and the complete implementation at `revision`, including its tests. Worker verification evidence is not required context.
 
-### Output: `./qa.yaml`
+### Output: `=/qa.yaml`
 
 ```yaml
 define: //.honeycomb/task-123/pass-001/define.yaml
@@ -478,10 +457,10 @@ In-scope findings return to Plan. Scope-changing feedback returns through Valida
 ### Procedure
 
 ```text
-Read `define` and relevant `validate` output.
-Inspect the complete implementation and tests in repository context.
-Investigate how well the implementation fulfills human intent and achieves high quality.
-Write `qa` findings explaining each shortcoming, its supporting evidence or reasoning, and its practical consequence.
+`Read` `define` and relevant `validate` output.
+`Inspect` the complete implementation and tests in repository context.
+`Investigate` how well the implementation fulfills human intent and achieves high quality.
+`Write` `qa` findings explaining each shortcoming, its supporting evidence or reasoning, and its practical consequence.
 ```
 
 Evaluation of this procedure remains deferred; its reliability is not established.
@@ -496,7 +475,7 @@ Review the implementation and end result with the human against the idea.
 
 `qa` with no outstanding findings. Its `implement` reference identifies the source revision whose implementation and end result the human reviews. Resolve `idea` through the relevant `validate` output.
 
-### Output: `./review.yaml`
+### Output: `=/review.yaml`
 
 ```yaml
 define: //.honeycomb/task-123/pass-001/define.yaml
@@ -514,11 +493,11 @@ The human's decision controls routing and stays in the tracker. Findings alone i
 ### Procedure
 
 ```text
-Read `qa`, `define`, relevant `validate` output, and its referenced `idea`.
-Present the implementation and end result to the human for review against `idea`, including their intent and taste.
-Discuss the review until the human approves the result or identifies actionable required changes. If the decision is withheld or requested changes are unclear, continue the conversation rather than inventing repair work.
-Write the human's findings to `review`.
-Record the human's decision against the result identified by `revision` in `implement`, and link `review` in the tracker.
+`Read` `qa`, `define`, relevant `validate` output, and its referenced `idea`.
+`Present` the implementation and end result to the human for review against `idea`, including their intent and taste.
+`Discuss` the review until the human approves the result or identifies actionable required changes, continuing the conversation rather than inventing repairs while the decision is withheld or changes are unclear.
+`Write` `review` with the human's findings.
+`Record` the human's decision against the result identified by `revision` in `implement`, and link `review` in the tracker.
 ```
 
 Approval of the reviewed result permits Ship, even with nonblocking feedback. Human-requested in-scope changes go to Plan; requested scope changes return through Validate → Define for renewed approval before planning. Human review does not merge.
@@ -533,7 +512,7 @@ Ship.
 
 `review` for an end result approved by the human in the tracker.
 
-### Output: `./ship.yaml`
+### Output: `=/ship.yaml`
 
 ```yaml
 review: //.honeycomb/task-123/pass-003/review.yaml
@@ -548,10 +527,10 @@ results:
 ### Procedure
 
 ```text
-Read `review` and follow its references to `revision` in `implement`.
-assert the end result being shipped is the result identified by that revision and approved by the human in the tracker
-Ship through the project's shipping adapter.
-Write `ship` and link it from the production ticket.
+`Read` `review` and follow its references to `revision` in `implement`.
+`Assert` the end result being shipped is the result identified by that revision and approved by the human in the tracker.
+`Ship` through the project's shipping adapter.
+`Write` `ship` and link it from the production ticket.
 ```
 
 The adapter defines the project's delivery operations: merge, release, deploy, publish, as applicable. Ship ships approved work. It does not conduct human review or produce repair findings.

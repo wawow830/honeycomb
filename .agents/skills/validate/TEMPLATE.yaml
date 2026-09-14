@@ -1,10 +1,10 @@
-idea: <reference to idea YAML>
+idea: =/idea.yaml
 decisions:
   - question: <question resolved with the human>
     answer: <answer>
     rationale: <reasoning>
 reconnaissance:
-  - location: <repository reference>
+  - location: ^/<repository path>
     finding: <finding>
 research: [] # External findings and sources, when needed.
 verification:

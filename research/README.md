@@ -1,49 +1,44 @@
-# Agent-assisted software development: research
+# Agent-assisted development: concrete cases, not a workflow
 
-Research date: **2026-09-14**. Status: **evidence review, not an adopted workflow**.
+**Research date: 2026-09-14.** This replaces the earlier broad survey with development histories, code/test inspection, failure cases, and a local reproduction.
 
-## Brief
+> **How are developers actually achieving fast, high-quality agent-assisted development, what makes it work, and where does it fail?**
 
-For software developers doing software development. The goals are exceptional speed without sacrificing quality or taste, as much determinism as possible, explicit structure, stack independence, and simplicity.
+The brief remains: exceptional speed without sacrificing quality or taste; maximum practical determinism; explicit boundaries and structure; stack independence; simplicity. **Only humans decide taste. Other human involvement remains undecided.** No workflow, framework, agent count, or approval policy is adopted here.
 
-**Taste belongs solely to the human.** This is a requirement from the brief, not a research finding. Human involvement elsewhere—including planning, code review, approvals, and release—remains undecided.
+## Start with the cases
 
-No particular agent count, framework, specification format, approval policy, or vendor was assumed to be the answer.
+| Work | What the evidence reveals | Read |
+|---|---|---|
+| Hardening a database-library release | Agent review found real defects; repair introduced others. Old query tests passed despite broken semantics. | [sqlite-utils](01-release-hardening.md) |
+| Porting an existing model into a browser | Reference comparisons enabled progress; Safari and deployment exposed failures those comparisons could not catch. | [Moebius](02-browser-port.md) |
+| Building a compiler with sixteen agents | Parallel work stalled on a shared blocker; changing failure localization made separate work possible. Public source is not the complete verification harness. | [Compiler](03-parallel-compiler.md) |
+| Unattended changes in a large existing codebase | Stripe reports a combination of programmed steps, agent implementation, bounded retries, inherited infrastructure, and human review. Internal traces are unavailable. | [Stripe](04-unattended-maintenance.md) |
+| Shipping a native-app feature | A human discarded generated code, redesigned state, and changed the UI approach after repeated failed fixes. | [Ghostty](05-human-judgment-and-rejection.md) |
+| Submitting a small compatibility fix | Six line replacements still left integration and submission work unfinished; the maintainer rejected it. | [GRDB.swift](05-human-judgment-and-rejection.md) |
+| Investigating security reports | One plausible demonstration did not use the alleged vulnerable library; a later AI-associated report reached real code and led to a fix. | [curl](05-human-judgment-and-rejection.md) |
 
-## Read the research
+## The strongest directly checked result
 
-1. [Productivity and quality](01-productivity-and-quality.md): measured gains, conflicting results, maintenance, comprehension, and review load.
-2. [Structure and coordination](02-structure-and-coordination.md): context files, specifications, single/multiple agents, and production experience.
-3. [Determinism and verification](03-determinism-and-verification.md): repeatability, environment controls, evaluation validity, and containment.
-4. [Open questions and experiments](04-open-questions.md): what the evidence leaves undecided and how to investigate it.
-5. [Source register](sources.md): 19 primary sources, dates/versions, evidence types, findings, and limitations.
+For sqlite-utils PR #768, this review ran pinned before/after code in an isolated environment:
 
-## Findings in brief
+- Old code, old query tests: **5 passed**.
+- Old code, revised query tests: **9 failed, 8 passed**.
+- Fixed code, the same revised tests: **17 passed**.
 
-- **There is no defensible universal speed multiplier.** Controlled studies and field observations measure different populations, tools, tasks, and outcomes. Newer evidence does not justify recycling either “AI makes developers 19% slower” or “AI doubles productivity” as a general rule. [S01–S04](sources.md#s01)
-- **Code quality, human understanding, and delivery speed are distinct outcomes.** One controlled handoff study found no significant maintainability disadvantage; other experiments found reduced comprehension. Neither finding cancels the other. [S05–S07](sources.md#s05)
-- **More structure is not automatically better—or worse.** Context files can add cost without improving benchmark success; version-matched documentation can solve a genuine knowledge gap. Harness components have both helped and become obsolete as models changed. [S08–S09](sources.md#s08), [S12–S13](sources.md#s12)
-- **Multiple agents demonstrate capability, not a universal efficiency advantage.** Benefits depend on task decomposition, coordination, resources, and the evaluator. [S10–S12](sources.md#s10)
-- **Determinism has several meanings.** Deterministic inference is technically possible under controlled conditions, but temperature zero alone is insufficient; reproducible environments and predictable gates do not imply identical end-to-end agent behavior. [S14–S15](sources.md#s14)
-- **Verification can itself be wrong.** July and September 2026 benchmark audits expose mismatched requirements/tests and answer leakage. A passing check is evidence about that check, not complete assurance. [S16–S17](sources.md#s16)
+An additional probe still found a qualification to the documented guarantee. This is evidence that the repair addressed particular failures—not that the library became defect-free. [Commands, revisions, environment, and results](06-reproduction.md).
 
-No reviewed source demonstrates all the brief’s goals together across arbitrary stacks. That is a limit of this review—not proof that the goal is unattainable.
+## What the cases suggest
 
-## Method and boundaries
+The useful changes were often specific: check persistence through another connection; provide a working reference; expose hard-to-reach UI states; inspect the real browser; isolate independently diagnosable failures; stop repeating an unsuccessful approach; make a human product decision.
 
-This was a targeted, exploratory review, not a systematic review or meta-analysis. Discovery used SearXNG; primary pages were read using Trafilatura, w3m, and a PDF text extraction. A parallel research pass investigated workflow mechanisms without selecting a preferred architecture. Findings were checked against primary material before inclusion.
+That is more applicable than “use more agents,” “write better specs,” or “add review.” Each intervention has prerequisites and a boundary beyond which it does not establish quality. [Cross-case findings and unresolved choices](07-findings.md).
 
-Searches covered productivity experiments, agentic development reliability, maintainability, comprehension, context/specification practices, coordination, determinism, evaluation validity, and security. Representative queries included:
+**No defensible universal speed multiplier emerges.** These records show useful work, plausible acceleration mechanisms, and real costs—but not complete, comparable accounting of accepted output, failed attempts, human attention, infrastructure, and long-term quality.
 
-- `AI coding agents developer productivity randomized study 2026 2025`
-- `agentic software engineering workflow empirical study reliability 2026`
-- `AI code maintainability randomized controlled trial 2026 Borg`
-- `coding agents reproducibility determinism temperature zero 2026 2025 research`
-- `SWE Bench Pro OpenAI July 2026 audit response Scale`
-- `StrongDM software factory February 2026 scenarios holdout code not reviewed`
+## Audit the research
 
-Primary experiments, original papers, and first-person engineering reports were prioritized. Vendor evidence was included but labeled; marketing summaries and search snippets were not treated as verification. Contrary findings and revised conclusions were actively sought. The newest included source is dated **2026-09-08**; publication date and actual study period are distinguished.
+- [Source and artifact register](sources.md): exact links, pinned revisions, what was inspected, and what was not.
+- [Method and misinformation checks](method.md): selection, searches, exclusions, extraction problems, and limits.
 
-Automatic extraction sometimes supplied incorrect dates or omitted mathematical values. Dates were checked against visible publication dates/submission histories where available; unverified dates remain undated. Specific figures use readable primary text or abstract metadata. Publisher access to the maintainability paper failed, so the accessible, explicitly versioned author manuscript is cited instead. Only a DORA landing-page summary was retrieved usefully; no quantitative DORA claim is used here.
-
-Limitations: English-language, search-index and accessibility bias; substantial vendor representation; no independent reproduction of experiments or artifact execution; limited long-term evidence. Coverage is strongest for implementation and validation, weaker for requirements discovery, production operation, regulated development, and multi-year maintenance. These notes do not establish stack-wide transferability or guarantee unchanged quality.
+The seven cases are deliberately selected, not a representative sample. Vendor deployment reports, maintainer accounts, public artifacts, and locally executed checks are kept distinct. The aim is to establish what is worth considering **before** designing the workflow with you.

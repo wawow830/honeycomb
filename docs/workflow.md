@@ -24,6 +24,15 @@ Each skill except the entry-point `honeycomb` reads one YAML input package and w
 
 Skills specify output locations. Stage handoffs require normal prompt completion and a readable output matching the skill's package contract.
 
+## Shared vocabulary
+
+YAML structures inter-agent communication; shared dictionaries establish what its terms mean.
+
+- The [Honeycomb dictionary](../skills/honeycomb/DICTIONARY.md) defines workflow terms. Skills reference this single source rather than copying it into each production.
+- The `dictionary` in `define.yaml` defines production-specific domain terms and is part of the human-approved specification.
+
+Define only terms whose ambiguity could change the outcome. Reuse them consistently in specifications, assignments, and findings. Resolve missing or conflicting meanings with the human rather than silently choosing an interpretation. Changing an approved domain meaning requires renewed human approval of `define` before planning.
+
 ## Ownership
 
 | YAML packages | Tracker |
@@ -53,7 +62,8 @@ Examples:
 | Resolve a tracker ticket | `honeycomb/TRACKER.md` resolves ticket references to the relevant GitHub or Linear ticket. |
 | Take a frontier node | `honeycomb/TRACKER.md` supplies the concrete procedure for selecting a node with satisfied dependencies and taking ownership so another worker cannot take the same node. |
 | Prepare a worker workspace | The project's workspace adapter creates an isolated Git worktree and branch for the worker, with its node input and references available, and resolves prerequisite code and evidence through the tracker nodes' branch and artifact links. |
-| Publish worker deliverables | The project's workspace adapter commits the worker's implementation and evidence on its branch and makes them available to downstream workers. The tracker node links that branch and its evidence. |
+| Publish the implementation and evidence | The project's workspace adapter commits the worker's implementation and evidence on its branch and makes them available to downstream workers. The tracker node links that branch and its evidence. |
+| Complete the node | The tracker adapter marks the node complete once its goals and verification are satisfied and its deliverables are published. |
 | Integrate worker branches | The project's workspace adapter combines worker branches, including their implementation and evidence, and advances the production branch only to a combined result that passes the integration node's verification and preserves already integrated work, including under concurrent integration. |
 
 These are Markdown translations, not an additional adapter framework. Core skills contain no harness-, model-, tracker-, or application-stack-specific commands.
@@ -192,7 +202,7 @@ These fields contain resolved decisions and supporting evidence, not a task defi
 
 ### Purpose
 
-Define the task: goals, non-goals, success, and failure.
+Capture the full, human-approved specification of the intended result. Settle choices that determine the outcome, leaving implementation planning to Plan.
 
 ### Input
 
@@ -201,37 +211,54 @@ Define the task: goals, non-goals, success, and failure.
 ### Output: `define.yaml`
 
 ```yaml
-id: task-123
+id: <production ticket ID>
+
+intent: |
+  <Who wants this, what they want, and why it matters.>
+
 goals:
-  - Let users export all results matching their active search filters.
+  - <Outcome to achieve>
+
 non_goals:
-  - Scheduled or recurring exports.
+  - <Explicitly excluded outcome>
+
+dictionary:
+  <domain_term>: |
+    <Agreed meaning that distinguishes this term from plausible alternatives.>
+
+specification: |
+  <Full agreed description of the result.
+  Organize according to the task.
+  Include relevant behavior, qualities, examples,
+  and the reasoning behind important decisions.>
+
+constraints:
+  - <Boundary the solution must respect>
+
 success:
-  - Deterministic checks confirm that exported records match the active filters and permissions.
-  - Independent agent review confirms reuse of established search behavior without unnecessary abstractions.
-  - Human review accepts the export interaction against the agreed behavior and taste.
+  - <Observable condition demonstrating the intended outcome>
+
 failure:
-  - Export exposes records the user cannot access.
-  - Export omits matching records or includes records outside the active filters.
+  - <Unacceptable outcome or consequence>
+
+references:
+  - location: <path or URL>
+    relevance: |
+      <What applies, and whether it is a requirement,
+      an illustration, or background context.>
 ```
 
-The output contains exactly five fields:
+`specification` carries the detail; the surrounding fields make intent and boundaries easy to find rather than repeating the entire specification. `id` is the existing production ticket's ID. `dictionary` maps domain terms to their agreed meanings; use an empty mapping when no terms need clarification. Workflow vocabulary remains in the shared Honeycomb dictionary.
 
-- `id`: The production's tracker ticket ID, not a separate identity.
-- `goals`: Intended outcomes.
-- `non_goals`: Explicitly excluded outcomes.
-- `success`: Conditions that must hold.
-- `failure`: Conditions that must not occur.
-
-Goals, success, and failure can involve deterministic checks, agent review, human review, or other assessment methods. State how they will be assessed where needed, without imposing a separate criterion schema. Human-owned judgments remain human-owned.
+Downstream agents should understand the full agreed intent from this document and its explicit references without reconstructing the conversation. The human reviews and approves the whole specification, not merely its goals or success conditions. Approval remains in the tracker.
 
 ### Procedure
 
-1. Read `validate` and relevant references.
-2. Use the existing production ticket's ID as `id`, and write `goals`, `non_goals`, `success`, and `failure` from the validated decisions.
-3. Check that `define` is bounded, internally consistent, and verifiable.
+1. Read `validate`, its referenced idea, and relevant references.
+2. Draft the full specification using the structure above and the existing production ticket's ID.
+3. Review it with the human. Resolve gaps and ambiguous terms rather than inventing answers, and revise until it captures their intended result, including relevant detail and rationale. Record agreed domain meanings in `dictionary` and use those terms consistently.
 4. Write `define.yaml` and link it from the existing production ticket, associating it with its specific `validate` input.
-5. Present this definition for human approval through the tracker and wait for approval.
+5. Present the complete specification for human approval through the tracker and wait for approval.
 
 Planning requires approval of the referenced definition, not a generic approval of the idea.
 
@@ -240,6 +267,8 @@ Planning requires approval of the referenced definition, not a generic approval 
 ### Purpose
 
 Plan how the task will be implemented.
+
+Plan settles decisions other assignments must rely on; Implement settles decisions contained within its assignment. Module responsibilities, function names, and data types belong in Plan when they form shared contracts, not merely because they are design decisions. Specify enough to make assignments independently executable without prewriting their code. Work requiring constant joint design may belong in one node.
 
 Represent the work as a DAG of small, bounded, independently verifiable nodes. Feature work uses vertical slices: each delivers an end-to-end outcome across the layers needed for that outcome, including verification. Do not divide feature work into separate frontend, backend, and test nodes merely by layer. Integration is ordinary DAG work that combines and verifies existing work.
 
@@ -251,10 +280,21 @@ An approved `define`, or `qa` or `review` YAML referencing `define` and containi
 
 ```yaml
 define: .honeycomb/task-123/pass-001/define.yaml
+
+approach: |
+  Reuse existing filtering and permission logic.
+  Extend the existing download mechanism for CSV export.
+
 nodes:
   - id: node-124
     goals:
       - Users can export all results matching their active filters from the search interface.
+    scope:
+      includes:
+        - Filtered CSV export, its search-interface action, and verification.
+      excludes:
+        - Changes to search filtering or permission rules.
+        - Integration of other nodes' branches onto the production branch.
     instructions: |
       Read the existing filtering behavior and search interface patterns in the references.
       Implement export using the existing filtering and permission behavior.
@@ -266,30 +306,37 @@ nodes:
       - Verify that the export interaction includes all matching results and excludes unauthorized records.
     references:
       - .honeycomb/task-123/pass-001/define.yaml
+      - .honeycomb/task-123/pass-001/plan/plan.yaml
       - .honeycomb/task-123/pass-001/validate/validate.yaml
       - src/search/filters.ts
       - src/search/
       - tests/search/
 ```
 
-The output contains `define` and `nodes`. Each node contains:
+The output contains `define`, `approach`, and `nodes`. `approach` explains the overall implementation decisions and how the work fits together; node instructions specify individual assignments. Both reuse the agreed meanings in `define.dictionary`.
+
+Each node contains:
 
 - `id`: The node's tracker ticket ID.
 - `goals`: The node's intended outcomes within the approved definition.
+- `scope`: `includes` and `excludes` state the work this node does and does not own. Scope bounds responsibility, not necessarily files or layers.
 - `instructions`: A YAML literal block containing plain-English instructions, with ordering and parallel work stated where needed.
 - `verification`: How to verify the node's outcomes.
-- `references`: The relevant `define` and specific context needed to execute the node without repeating reconnaissance or research.
+- `references`: The relevant `define`, the containing `plan`, and specific context needed to execute the node without repeating reconnaissance or research.
 
-Dependencies, ownership, and status live only in the tracker. Plan does not implement.
+Clear assignments have `goals`, `instructions`, and `references`; `scope` makes them bounded; `verification` makes them testable.
+
+Dependencies, agent ownership, and status live only in the tracker. Plan does not implement.
 
 ### Procedure
 
 1. Read the approved `define` and relevant `validate` output. For QA or review input, also read its findings and implementation evidence. Use the human's tracker decision to distinguish required review changes from nonblocking feedback.
-2. Divide the required work into small, bounded, independently verifiable nodes, using vertical slices for feature work.
-3. Create the nodes and dependencies in the tracker, including ordinary integration nodes that combine worker branches and evidence onto the production branch.
-4. Give each node goals, instructions, verification, references, and the prerequisites that make it executable at the frontier.
-5. Check that the DAG is acyclic and covers the required work, including the definition's relevant goals, success, and failure.
-6. Write `plan/plan.yaml` and link it from the tracker nodes.
+2. Establish the overall implementation `approach`: what changes, what is reused, and how the pieces fit together. Settle shared commitments between assignments while leaving local design decisions to workers.
+3. Divide the required work into small, bounded, independently verifiable nodes, using vertical slices for feature work.
+4. Create the nodes and dependencies in the tracker, including ordinary integration nodes that combine worker branches and evidence onto the production branch.
+5. Give each node goals, scope, instructions, verification, references, and the prerequisites that make it executable at the frontier.
+6. Check that the DAG is acyclic and covers the required work, including the definition's relevant goals, success, and failure.
+7. Write `plan/plan.yaml` and link it from the tracker nodes.
 
 ## 5. Implement
 
@@ -297,7 +344,7 @@ Dependencies, ownership, and status live only in the tracker. Plan does not impl
 
 Implement the task using the plan.
 
-Plan creates and changes the DAG; Implement executes it.
+Plan creates and changes the DAG and its shared commitments. Implement executes the assignments, including local design decisions within their scope and those commitments.
 
 Honeycomb invokes `implement` once per plan. Two ordinary skills encapsulate implementation:
 
@@ -337,7 +384,7 @@ Each implementation worker uses an isolated Git worktree and branch. Plan's ordi
 
 ### `implement-worker` input: `.honeycomb/<production-id>/pass-<n>/plan/nodes/<node-id>.yaml`
 
-Each node YAML belongs to the directory containing its input `plan.yaml`. The input is the selected node itself, containing `id`, `goals`, `instructions`, `verification`, and `references`, including the relevant `define`. It is not a whole plan or an assignment wrapper. Ownership and dependencies remain in the tracker.
+Each node YAML belongs to the directory containing its input `plan.yaml`. The input is the selected node itself, containing `id`, `goals`, `scope`, `instructions`, `verification`, and `references`, including the relevant `define` and containing `plan`. The node bounds responsibility, not visibility: workers read the specification and plan for intent, shared commitments, and neighboring work, but execute only their assigned node. Shared decisions remain in the plan rather than being copied into every node. Ownership and dependencies remain in the tracker.
 
 ### `implement-worker` output: `.honeycomb/<production-id>/pass-<n>/implement/nodes/<node-id>.yaml`
 
@@ -355,12 +402,10 @@ The worker output contains `id`, `changes`, and `verification`. Verification rec
 
 ### `implement-worker` procedure
 
-1. Read the assigned node's `id`, `goals`, `instructions`, `verification`, and `references`, including the relevant `define`. Read prerequisite evidence through tracker artifact links when needed.
-2. Prepare and use an isolated worker workspace through the project's workspace adapter.
-3. Execute the instructions and verification, using verification feedback to satisfy the goals.
-4. Write `implement/nodes/<node-id>.yaml` in the input node's pass with `id`, `changes`, and verification results.
-5. Publish the implementation, evidence YAML, and supporting evidence on the worker's branch through the workspace adapter. Link the branch and evidence from the tracker node.
-6. Complete the node once its goals and verification are satisfied and its committed deliverables are available to downstream workers.
+1. Read the node and its references.
+2. Execute its instructions and verification to satisfy its goals within scope.
+3. Publish the implementation and evidence.
+4. Complete the node.
 
 Each node gets a separate worker. Workers execute assigned nodes rather than selecting work from the DAG. Completion means the node's implementation and evidence are committed and accessible through its tracker links, not merely present in a private worktree. Node completion does not constitute independent QA or production acceptance.
 

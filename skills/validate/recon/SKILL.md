@@ -4,6 +4,8 @@ description: "Gather repository findings and verification baselines for validati
 disable-model-invocation: true
 ---
 
+Use the shared meanings in [DICTIONARY.md](../../honeycomb/DICTIONARY.md).
+
 1. Read the input YAML and its references.
 2. Explore repository behavior, conventions, and constraints relevant to the idea.
 3. Identify available verification methods and observe their baselines.

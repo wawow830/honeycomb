@@ -1,9 +1,10 @@
-"""Read-only task readiness command. Uses only the Python standard library."""
+"""Create tasks and list ready tasks. Uses only the Python standard library."""
 
 import argparse
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
 
@@ -72,15 +73,79 @@ def ready_tasks(tasks):
     )
 
 
+def add_task(directory, task):
+    """Validate an approved task and store it without replacing existing records."""
+    fields = {"id", "outcome", "scope", "depends_on", "proof"}
+    if not isinstance(task, dict) or set(task) != fields:
+        raise ValueError("expected exactly: id, outcome, scope, depends_on, proof")
+    task_id = task["id"]
+    if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", task_id):
+        raise ValueError("id must be 1–128 letters, digits, underscores, or hyphens; start with a letter or digit")
+    for field in ("outcome", "scope"):
+        if not isinstance(task[field], str) or not task[field].strip():
+            raise ValueError(f"{field} must be a nonempty string")
+    dependencies = task["depends_on"]
+    if not isinstance(dependencies, list) or any(
+        not isinstance(dependency, str) or not dependency or any(c.isspace() for c in dependency)
+        for dependency in dependencies
+    ):
+        raise ValueError("depends_on must be a list of task IDs")
+    if len(set(dependencies)) != len(dependencies):
+        raise ValueError("duplicate dependency")
+    proof = task["proof"]
+    if not isinstance(proof, list) or not proof:
+        raise ValueError("proof must be a nonempty list")
+    for item in proof:
+        if not isinstance(item, dict) or set(item) != {"condition", "verification"}:
+            raise ValueError("each proof item must contain exactly condition and verification")
+        if any(not isinstance(value, str) or not value.strip() for value in item.values()):
+            raise ValueError("condition and verification must be nonempty strings")
+
+    tasks = load_tasks(directory) if directory.exists() else {}
+    ready_tasks(tasks)
+    if task_id in tasks:
+        raise ValueError(f"duplicate task id: {task_id}")
+    record = {
+        **task,
+        "state": "pending",
+        "proof": [{**item, "result": None} for item in proof],
+    }
+    ready_tasks({**tasks, task_id: record})
+    content = json.dumps(record, indent=2) + "\n"
+    directory.mkdir(parents=True, exist_ok=True)
+    # Exclusive creation protects existing paths, even if filenames differ from IDs.
+    with (directory / f"{task_id}.json").open("x", encoding="utf-8") as output:
+        output.write(content)
+
+
+def unique_object(pairs):
+    """Reject ambiguous JSON input instead of silently keeping the last value."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def invalid_constant(value):
+    raise ValueError(f"invalid JSON constant: {value}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["ready"], help="list ready task IDs, one per line")
-    parser.parse_args()
+    parser.add_argument("command", choices=["ready", "add"], help="list ready IDs or add a task from JSON stdin")
+    args = parser.parse_args()
     home = os.environ.get("HONEYCOMB_DIR")
     if not home or not Path(home).is_absolute():
         parser.exit(2, "error: HONEYCOMB_DIR must be an absolute path\n")
     try:
-        ready = ready_tasks(load_tasks(Path(home) / "tasks"))
+        directory = Path(home) / "tasks"
+        if args.command == "add":
+            task = json.load(sys.stdin, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+            add_task(directory, task)
+            return 0
+        ready = ready_tasks(load_tasks(directory))
     except (ValueError, OSError) as error:
         parser.exit(2, f"error: {error}\n")
     for task_id in ready:

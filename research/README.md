@@ -18,6 +18,12 @@ The brief remains: exceptional speed without sacrificing quality or taste; maxim
 | Submitting a small compatibility fix | Six line replacements still left integration and submission work unfinished; the maintainer rejected it. | [GRDB.swift](05-human-judgment-and-rejection.md) |
 | Investigating security reports | One plausible demonstration did not use the alleged vulnerable library; a later AI-associated report reached real code and led to a fix. | [curl](05-human-judgment-and-rejection.md) |
 
+## September 15 supplement: project harnesses and pstack
+
+Three supplied posts add concrete guidance on canonical check commands, real-application verification tools, maintained feature maps, and evidence-led prototyping. Selected linked artifacts were checked: Atlas is a fictional documentation example without its driver, and pstack's plan validator accepts its unfilled skeleton. Productivity claims remain unverified.
+
+[Read the ingestion and comparison with the current Honeycomb workflow](08-project-harness-and-pstack.md). This is a dated supplement to the original seven cases, not adoption of another framework or a change to `WORKFLOW.md`.
+
 ## The strongest directly checked result
 
 For sqlite-utils PR #768, this review ran pinned before/after code in an isolated environment:

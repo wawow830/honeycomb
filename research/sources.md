@@ -1,6 +1,6 @@
 # Sources and artifact register
 
-Accessed **2026-09-14**. Grouped by evidence chain, not counted as independent corroboration merely because a story has several URLs. A blog, its transcript, and its PR can all describe the **same event**.
+Original cases accessed **2026-09-14**; [project harness and pstack supplement](#project-harness-and-pstack) accessed **2026-09-15**. Grouped by evidence chain, not counted as independent corroboration merely because a story has several URLs. A blog, its transcript, and its PR can all describe the **same event**.
 
 **Inspection labels:** “read” means the material was retrieved and examined; “executed” means the specific check was run locally. An agent-authored note or execution summary is attributed evidence, not independent confirmation.
 
@@ -93,3 +93,26 @@ Both complete article bodies were read after extracting Markdown strings embedde
 - METR, **February 24, 2026**: [We are Changing our Developer Productivity Experiment Design](https://metr.org/blog/2026-02-24-uplift-update/). Primary follow-up reread: selection, participation, compensation, scope, and parallel-agent time-accounting limitations make the magnitude of contemporary uplift unreliable.
 
 **Limit:** no statistical reanalysis or replication. The follow-up does not preserve an eternal slowdown verdict or establish a clean universal reversal. The case studies above were not selected to reproduce either study’s population.
+
+## project-harness-and-pstack
+
+**User-supplied sources; accessed September 15, 2026.** Used in [08](08-project-harness-and-pstack.md). Two author accounts, not three independent outcome studies.
+
+### Article bodies
+
+- Gaetan Semet: [post](https://x.com/gsemetfr/status/2077498943085117460) · [article](https://x.com/i/article/2077494546553044992), **Building Agentic Project Harness**, July 15; structured metadata reports modification August 9. Full prose and code examples read from X HTML and structured article data. The linked Medium copy was not separately inspected.
+- Lauren / @poteto: [post](https://x.com/poteto/status/2094457600259842065) · [article](https://x.com/i/article/2094151284949688320), **The Complete Guide to pstack Pt. 1**, August 31. Full body and links read, including cloud-over-worktree recommendation and productivity claims.
+- Lauren / @poteto: [post](https://x.com/poteto/status/2097732320606507506) · [article](https://x.com/i/article/2094940651607715840), **The Complete Guide to pstack Pt. 2**, September 9. Full body and links read, including research, prototypes, architecture, and planning examples.
+- Semet's acknowledged conceptual source: [Harness engineering for coding agent users](https://martinfowler.com/articles/harness-engineering.html), dated April 2, 2026. Full extracted article read, including behavioral-correctness limits. This is part of Semet's evidence chain, not independent confirmation of his implementation or costs.
+
+**Retrieval:** direct public X HTML contained article bodies. FxTwitter's public API supplied structured article blocks, embedded code, link destinations, and metadata at `https://api.fxtwitter.com/<author>/status/<id>`. This second transport is not an independent source. Images were not visually audited; captions are not independent verification of depicted results. Product/plugin links, private sessions, and every linked skill were not exhaustively investigated.
+
+### Selected public artifacts
+
+Pinned **current-at-inspection**, not asserted to be article-time snapshots:
+
+- `cursor/plugins@be432a96ed36e48d05f44bf375864355f62263f9`: full [creation skill](https://github.com/cursor/plugins/blob/be432a96ed36e48d05f44bf375864355f62263f9/pstack/skills/create-verification-skill/SKILL.md), [maintenance skill](https://github.com/cursor/plugins/blob/be432a96ed36e48d05f44bf375864355f62263f9/pstack/skills/maintain-verification-skill/SKILL.md), [prototype playbook](https://github.com/cursor/plugins/blob/be432a96ed36e48d05f44bf375864355f62263f9/pstack/skills/poteto-mode/playbooks/prototype.md), [architecture skill](https://github.com/cursor/plugins/blob/be432a96ed36e48d05f44bf375864355f62263f9/pstack/skills/architect/SKILL.md), and [multi-phase planning playbook](https://github.com/cursor/plugins/blob/be432a96ed36e48d05f44bf375864355f62263f9/pstack/skills/poteto-mode/playbooks/multi-phase-plan.md) read. Instructions demonstrate intended operation, not actual agent compliance.
+- [Plan validator](https://github.com/cursor/plugins/blob/be432a96ed36e48d05f44bf375864355f62263f9/pstack/skills/poteto-mode/scripts/check-plan.mjs): complete source read, then **executed** against the unfilled skeleton from the same revision. Returned zero problems and exit code 0. [Reproduction and interpretation](08-project-harness-and-pstack.md#bounded-local-check-an-unfilled-plan-passes-the-validator). No live agent run or product verification was executed.
+- `poteto/verification-skill-example@d5abe70d0d8c671672b6cef4069363f26c488feb`: full [README](https://github.com/poteto/verification-skill-example/blob/d5abe70d0d8c671672b6cef4069363f26c488feb/README.md), [verification skill](https://github.com/poteto/verification-skill-example/blob/d5abe70d0d8c671672b6cef4069363f26c488feb/.cursor/skills/verify-atlas/SKILL.md), [feature index](https://github.com/poteto/verification-skill-example/blob/d5abe70d0d8c671672b6cef4069363f26c488feb/.cursor/skills/verify-atlas/references/features/README.md), and [Preferences map](https://github.com/poteto/verification-skill-example/blob/d5abe70d0d8c671672b6cef4069363f26c488feb/.cursor/skills/verify-atlas/references/features/preferences.md) read. [Recursive tree](https://api.github.com/repos/poteto/verification-skill-example/git/trees/d5abe70d0d8c671672b6cef4069363f26c488feb?recursive=1) returned `truncated: false`; no executable driver. The README explicitly calls Atlas fictional and driver scripts intentionally omitted.
+
+**Limit:** no Grok Bot or Cursor production PR audit, cost/defect dataset, cloud-versus-local benchmark, completed architecture arena, or end-to-end execution of the published verification skills. PR volumes and productivity multipliers remain attributed claims. The plan-validator probe tests structural validation only.

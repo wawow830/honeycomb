@@ -2,6 +2,8 @@
 
 These are conclusions from [the inspected cases](README.md), **not an adopted workflow**. Confidence refers to the particular mechanism, not a promise of universal productivity gains.
 
+**September 15 supplement:** [Project harnesses and pstack](08-project-harness-and-pstack.md) adds maintained real-surface drivers, feature maps, and prototype-led design to the mechanisms below. Artifact inspection also found an intentionally omitted example driver and a plan validator that passes an unfilled skeleton. These reinforce the distinction between a specified check, an executable check, and proof of behavior. The original findings below retain their September 14 framing; the supplement separately compares them with the subsequent Honeycomb workflow.
+
 ## 1. Check the claimed behavior, not a convenient substitute
 
 **Strong, locally reproduced instance:** sqlite-utils’ old test asserted that a rejected query raised an exception. It passed even though the database changed. The repaired tests checked state preservation and visibility from another connection. A further probe still found an exception to the broad documented guarantee. [Case](01-release-hardening.md)

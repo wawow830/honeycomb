@@ -68,4 +68,12 @@ Success/publication bias, English-language and search-index bias, incomplete pri
 
 Long-term maintenance, production incidents, organizational learning, requirements discovery, and operations remain weakly covered. There is no controlled local agent-productivity experiment, multi-agent cost comparison, or complete security/taste evaluation.
 
+## September 15 ingestion supplement
+
+[Project harnesses and pstack](08-project-harness-and-pstack.md) follows three user-supplied X links rather than a new discovery search. The three articles represent two author accounts. Direct X HTML exposed the article bodies; structured FxTwitter responses supplied embedded code, link destinations, and modification metadata. Neither transport is counted as independent corroboration. Images were not visually audited.
+
+Follow-up inspection covered Semet's linked taxonomy and selected public pstack/Atlas artifacts, pinned to their current revisions. Those snapshots are not assumed to match publication-time versions. Atlas's complete tree and explicit README disclaimer establish that its driver is intentionally absent. After source inspection, a bounded local probe ran pstack's plan validator on its own unfilled skeleton; it passed. This establishes a structural-check limitation, not that the operational workflow accepts unfinished plans. No pstack installation, live agent run, private product access, or cloud provisioning was performed.
+
+The supplement distinguishes transferable mechanisms from vendor/model policies and compares them with the now-existing `WORKFLOW.md` without modifying it. The original cases and their research-date conclusions remain historical; the only additional execution is the documented validator probe.
+
 **The result is concrete evidence about particular practices and boundaries—not proof of exceptional speed without compromise.** The source register and reproduction record make the strongest claims inspectable and the missing evidence explicit.

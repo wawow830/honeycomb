@@ -42,9 +42,14 @@ That is more applicable than “use more agents,” “write better specs,” or
 
 **No defensible universal speed multiplier emerges.** These records show useful work, plausible acceleration mechanisms, and real costs—but not complete, comparable accounting of accepted output, failed attempts, human attention, infrastructure, and long-term quality.
 
+## September 15 supplements
+
+- [Project harnesses and pstack](08-project-harness-and-pstack.md): maintained real-surface verification, feature maps, and prototype-led design; no change to the workflow.
+- [Measuring code sloppiness](09-code-sloppiness-and-measurement.md): longitudinal verbosity and structural-erosion signals for quality loss that passing tests can miss; no benchmark rerun and no universal metric adopted.
+
 ## Audit the research
 
 - [Source and artifact register](sources.md): exact links, pinned revisions, what was inspected, and what was not.
 - [Method and misinformation checks](method.md): selection, searches, exclusions, extraction problems, and limits.
 
-The seven cases are deliberately selected, not a representative sample. Vendor deployment reports, maintainer accounts, public artifacts, and locally executed checks are kept distinct. The aim is to establish what is worth considering **before** designing the workflow with you.
+The cases are deliberately selected, not a representative sample. Vendor deployment reports, maintainer accounts, practitioner guidance, public artifacts, and locally executed checks are kept distinct. The aim is to establish what is worth considering **before** designing the workflow with you.

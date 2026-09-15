@@ -77,3 +77,11 @@ Follow-up inspection covered Semet's linked taxonomy and selected public pstack/
 The supplement distinguishes transferable mechanisms from vendor/model policies and compares them with the now-existing `WORKFLOW.md` without modifying it. The original cases and their research-date conclusions remain historical; the only additional execution is the documented validator probe.
 
 **The result is concrete evidence about particular practices and boundaries—not proof of exceptional speed without compromise.** The source register and reproduction record make the strongest claims inspectable and the missing evidence explicit.
+
+## September 15 ingestion supplement: code sloppiness
+
+This pass followed the user-supplied Earendil article to the exact SlopCodeBench v1 link used in the article, rather than substituting the current arXiv version. The article body, formulas, footnotes, and linked judge-bias paper were retrieved and read. The SlopCodeBench HTML was inspected for its protocol, metric definitions, tables, results, and appendix qualifications; the public benchmark landing page was also read.
+
+The article's “0% pass rate” wording was checked against the paper's definition. It refers to no complete problem being strictly solved across all checkpoints and regression tests, while individual checkpoints do pass. The reported human/agent metric values were checked against the v1 table's `alttext` because ordinary text extraction omitted several equations and table values. The article and v1 report the same values for the comparison discussed in [09](09-code-sloppiness-and-measurement.md).
+
+No benchmark implementation, dataset, metric calculator, or judge setup was downloaded or run. The claims remain attributed to the article and paper. Static metric definitions were treated as operational proxies; no causal claim about maintenance cost was inferred. The later arXiv version was noted but not used to rewrite the article-time evidence.

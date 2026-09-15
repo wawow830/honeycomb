@@ -1,4 +1,4 @@
-"""Create tasks and list ready tasks. Uses only the Python standard library."""
+"""Create, list, and start tasks. Uses only the Python standard library."""
 
 import argparse
 import json
@@ -6,20 +6,25 @@ import os
 from pathlib import Path
 import re
 import sys
+import tempfile
 
 
 STATES = {"pending", "running", "done"}
 
 
-def load_tasks(directory):
-    """Load one JSON object per task file and validate scheduling fields."""
+def load_tasks(directory, *, paths=None):
+    """Validate stored tasks; optionally collect their source paths by ID."""
     if not directory.is_dir():
         raise ValueError(f"task directory not found: {directory}")
 
     tasks = {}
     for path in sorted(directory.glob("*.json")):
         try:
-            task = json.loads(path.read_text(encoding="utf-8"))
+            task = json.loads(
+                path.read_text(encoding="utf-8"),
+                object_pairs_hook=unique_object,
+                parse_constant=invalid_constant,
+            )
         except (ValueError, OSError) as error:
             raise ValueError(f"{path.name}: {error}") from error
         if not isinstance(task, dict):
@@ -39,6 +44,8 @@ def load_tasks(directory):
         if len(set(dependencies)) != len(dependencies):
             raise ValueError(f"{task_id}: duplicate dependency")
         tasks[task_id] = task
+        if paths is not None:
+            paths[task_id] = path
     return tasks
 
 
@@ -118,6 +125,33 @@ def add_task(directory, task):
         output.write(content)
 
 
+def start_task(directory, task_id):
+    """Mark one ready task running, preserving its other fields."""
+    paths = {}
+    tasks = load_tasks(directory, paths=paths)
+    ready = ready_tasks(tasks)
+    if task_id not in tasks:
+        raise ValueError(f"unknown task: {task_id}")
+    if task_id not in ready:
+        raise ValueError(f"task is not ready: {task_id}")
+
+    record = {**tasks[task_id], "state": "running"}
+    content = json.dumps(record, indent=2) + "\n"
+    temporary = None
+    try:
+        # Write fully before replacing; this is not a concurrent-writer lock.
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=directory,
+            prefix=".start-", suffix=".tmp", delete=False,
+        ) as output:
+            temporary = Path(output.name)
+            output.write(content)
+        os.replace(temporary, paths[task_id])
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def unique_object(pairs):
     """Reject ambiguous JSON input instead of silently keeping the last value."""
     result = {}
@@ -134,7 +168,11 @@ def invalid_constant(value):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["ready", "add"], help="list ready IDs or add a task from JSON stdin")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("ready", help="list ready task IDs")
+    commands.add_parser("add", help="add a task from JSON stdin")
+    start = commands.add_parser("start", help="mark a ready task running")
+    start.add_argument("id", help="task ID")
     args = parser.parse_args()
     home = os.environ.get("HONEYCOMB_DIR")
     if not home or not Path(home).is_absolute():
@@ -144,6 +182,9 @@ def main():
         if args.command == "add":
             task = json.load(sys.stdin, object_pairs_hook=unique_object, parse_constant=invalid_constant)
             add_task(directory, task)
+            return 0
+        if args.command == "start":
+            start_task(directory, args.id)
             return 0
         ready = ready_tasks(load_tasks(directory))
     except (ValueError, OSError) as error:

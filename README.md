@@ -86,8 +86,28 @@ references, or cycles produce an error on stderr and exit code `2`, with no
 partial results. The command never changes records or starts work. Readiness
 assumes recorded states are accurate; it does not verify proof or Git history.
 
+### Start a ready task
+
+```sh
+python3 honeycomb.py start list-ready
+```
+
+`start <id>` requires a pending task with every dependency done. It validates
+stored records and the dependency graph, then changes only that task's `state`
+to `running`. Other fields and other records stay unchanged.
+Success produces no output and exit code `0`.
+
+Unknown or unready tasks and invalid stored graphs produce an error on stderr
+and exit code `2`, without changing records. Starting an already running task
+is rejected. IDs are resolved from records, not filenames.
+
+This command only records the transition. It does not dispatch agents, perform
+Git operations, verify proof, or enforce approval or ownership.
+
+### Limitations
+
 Keep `HONEYCOMB_DIR` pointing at the main checkout when using worktrees.
-Do not run record writers concurrently with either command. Exclusive file
+Do not run record writers concurrently with any command. Exclusive file
 creation prevents overwrites, but graph reads and writes are not a transaction.
 Concurrent coordination and recovery from interrupted writes are not implemented.
 

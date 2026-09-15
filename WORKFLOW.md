@@ -32,6 +32,9 @@ Define → Execute → Prove
 
 One agent owns each task. Splitting changes execution, not the workflow.
 
+**Delegate an outcome; receive a proven result.**
+The owner handles its task's internals and returns the combined result to its parent.
+
 ### 1. Define
 
 Inspect the project. Fill the task's outcome, scope, and proof.
@@ -68,12 +71,60 @@ No separate planning document.
 - Unclear independence means sequential execution.
 - Tooling validates the graph, detects cycles, and selects ready tasks.
 
+**Depend on complete results, not another task's internals.**
+
+```text
+T
+├─ A
+│  └─ A1
+└─ B       depends_on: [A]
+   └─ B1
+```
+
+If B1 needs A1, B waits for all of A. A1 stays inside A.
+A returns its proven result to T; B starts from updated T.
+
 ```text
 pending → running → done
 ```
 
 `ready` is computed: pending with every dependency done.
 Failed proof means unfinished—not another state.
+
+Each owner controls only its direct subtasks' state. Workers return evidence,
+not competing state. A subtask owner is its parent's worker and, when split,
+its children's coordinator.
+
+The parent uses two operations:
+
+```text
+start(task)
+  require pending + dependencies done
+  mark running
+  prepare branch and worktree from current parent
+  dispatch owner
+
+finish(task, evidence)
+  require running
+  verify proof against current parent
+  merge into parent
+  mark done
+```
+
+Same rules at every depth.
+
+Store task records once in `.honeycomb/tasks/` at the main checkout root.
+Gitignore `.honeycomb/`; do not create worktree-local copies.
+
+The launcher resolves the absolute path before dispatching agents:
+
+```sh
+export HONEYCOMB_DIR="$(pwd)/.honeycomb"
+```
+
+Run this from the main checkout root. Child agents inherit the variable,
+including when launched in other worktrees. Task tooling uses
+`$HONEYCOMB_DIR/tasks/` and enforces direct-parent state ownership.
 
 Run ready tasks in parallel; isolate implementations in separate Git worktrees.
 
@@ -118,5 +169,5 @@ Evidence stays in the task record. No separate report.
 
 **Done = proof proven.**
 
-Mark a task done after its proven change is merged into its parent. The scheduler
-releases newly ready dependents; the completing agent does not edit other tasks.
+The parent marks a task done after its proven change is merged into the parent's
+branch. Dependents become ready from state; no separate release operation.

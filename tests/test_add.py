@@ -24,8 +24,8 @@ class AddCommandTests(unittest.TestCase):
             "scope": "Read records only.",
             "depends_on": [],
             "proof": [
-                {"condition": "Output is correct", "verification": "Run CLI tests"},
-                {"condition": "Records are unchanged", "verification": "Compare records"},
+                {"condition": "Output is correct", "verification": {"run": "python3 -m unittest"}},
+                {"condition": "Records are unchanged", "verification": {"review": "developer"}},
             ],
         }
 
@@ -103,10 +103,10 @@ class AddCommandTests(unittest.TestCase):
             "scope": [None, {}, False, "", "\t"],
             "depends_on": [None, "A", [None], [[]], [""], ["two words"], ["A", "A"], ["missing"], ["new-task_1"]],
             "proof": [None, {}, [], [None], [{}], [{"condition": "C"}],
-                      [{"condition": "C", "verification": "V", "result": None}],
-                      [{"condition": "", "verification": "V"}],
+                      [{"condition": "C", "verification": {"run": "true"}, "result": None}],
+                      [{"condition": "", "verification": {"run": "true"}}],
                       [{"condition": "C", "verification": " "}],
-                      [{"condition": 1, "verification": "V"}],
+                      [{"condition": 1, "verification": {"run": "true"}}],
                       [{"condition": "C", "verification": []}]],
         }
         self.store("baseline.json", {"id": "baseline", "state": "done", "depends_on": []})
@@ -118,6 +118,20 @@ class AddCommandTests(unittest.TestCase):
                 task = copy.deepcopy(self.task)
                 del task[field]
                 self.assert_rejected(task=task)
+
+    def test_invalid_verification_actions(self):
+        for verification in (
+            "Run tests", None, {}, {"run": ""}, {"run": " \n"},
+            {"run": 0}, {"run": "echo\x00bad"}, {"review": "agent"},
+            {"review": True}, {"review": ["developer"]},
+            {"run": "true", "review": "developer"},
+            {"run": "true", "expected": 0}, {"other": "true"},
+        ):
+            with self.subTest(verification=verification):
+                self.assert_rejected(task={
+                    **self.task,
+                    "proof": [{"condition": "Works", "verification": verification}],
+                })
 
     def test_unknown_and_managed_fields_are_rejected(self):
         for field, value in (("state", "done"), ("result", True), ("subtasks", []), ("typo", "x")):

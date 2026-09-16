@@ -168,7 +168,7 @@ class StartCommandTests(unittest.TestCase):
         task = {
             "id": "new-task", "outcome": "Example", "scope": "Example",
             "depends_on": [],
-            "proof": [{"condition": "Works", "verification": "Run tests"}],
+            "proof": [{"condition": "Works", "verification": {"run": "true"}}],
         }
         added = self.run_command("add", data=json.dumps(task))
         self.assertEqual(added.returncode, 0, added.stderr)

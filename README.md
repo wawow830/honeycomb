@@ -35,7 +35,7 @@ python3 honeycomb.py add <<'JSON'
   "proof": [
     {
       "condition": "Only pending tasks with all dependencies done are listed.",
-      "verification": "Run CLI readiness tests; require exit code 0."
+      "verification": {"run": "python3 -m unittest discover -s tests -p test_ready.py"}
     }
   ]
 }
@@ -51,8 +51,10 @@ Success produces no output and exit code `0`.
   starting with a letter or digit. This keeps filenames safe.
 - Outcome and scope must be nonblank strings.
 - Dependencies must be unique existing task IDs; cycles are rejected.
-- Proof must contain at least one condition. Each item contains exactly
-  `condition` and `verification`, both nonblank strings.
+- Proof must contain at least one item with exactly `condition` and `verification`.
+  The condition is a nonblank string. Verification contains exactly
+  `{"run": "<command>"}` (a nonblank command) or `{"review": "developer"}`.
+  Legacy verification strings are no longer accepted by `add` or `prove`.
 - The command sets `state` to `pending` and each proof `result` to `null`.
   Callers cannot supply these managed fields.
 
@@ -103,6 +105,57 @@ is rejected. IDs are resolved from records, not filenames.
 
 This command only records the transition. It does not dispatch agents, perform
 Git operations, verify proof, or enforce approval or ownership.
+
+### Prove a running task
+
+Run from the task's checkout so checks see the intended code:
+
+```sh
+python3 /path/to/honeycomb.py prove list-ready
+```
+
+`prove <id>` validates the stored graph and the task's entire proof, then runs
+all command checks in order, even after failures. Commands run through the shell
+in the caller's working directory and environment, with closed stdin. Command
+output goes to stderr; stdout reports proof item numbers and actual exit codes:
+
+```text
+1: exit_code: 0
+2: review: Developer accepts the wording.
+```
+
+Results stay in the proof item: `{"exit_code": 0}` passes; any other exit code
+fails. Each run clears old command results first and saves each new result
+atomically. An interrupted run leaves uncompleted checks unproven.
+
+Unaccepted developer reviews are returned with **1-based proof item numbers**.
+The agent asks in the existing conversation, then relays the developer's decision:
+
+```sh
+python3 honeycomb.py prove list-ready --review 2 --accept
+python3 honeycomb.py prove list-ready --review 2 --reject
+```
+
+These commands record `{"accepted": true}` or `{"accepted": false}` in only
+that review's result. They do not rerun commands. No developer answer means no
+update. Plain `prove` never grants or changes review decisions.
+The interface trusts the agent's relay; it does not authenticate the developer.
+
+Exit codes for both forms:
+
+- `0`: every proof item passes.
+- `1`: proof remains incomplete (failed check, unrun check, rejected or unanswered review).
+- `2`: invalid invocation, record, graph, or storage/launch error.
+
+Invalid input is rejected before executing commands or modifying records.
+Only running tasks can be proven. The command changes proof results, not task
+state; it does not merge, mark done, or release dependents.
+
+Verification commands are trusted code, not sandboxed: they can modify files and
+inherit credentials. No timeout is imposed. Do not use checks that mutate task
+records. Results are not bound to a Git revision; after code changes, rerun checks
+and obtain renewed review where affected. Passing a command proves it exited `0`,
+not that the command adequately tests its condition.
 
 ### Limitations
 

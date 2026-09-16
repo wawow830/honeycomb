@@ -1,10 +1,11 @@
-"""Create, list, and start tasks. Uses only the Python standard library."""
+"""Create, list, start, and prove tasks. Uses only the Python standard library."""
 
 import argparse
 import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 
@@ -80,6 +81,36 @@ def ready_tasks(tasks):
     )
 
 
+def validate_proof(proof, *, stored=False):
+    """Validate the entire proof before executing commands or changing results."""
+    if not isinstance(proof, list) or not proof:
+        raise ValueError("proof must be a nonempty list")
+    fields = {"condition", "verification"} | ({"result"} if stored else set())
+    for number, item in enumerate(proof, 1):
+        if not isinstance(item, dict) or set(item) != fields:
+            raise ValueError(f"proof item {number}: expected exactly {', '.join(sorted(fields))}")
+        condition = item["condition"]
+        if not isinstance(condition, str) or not condition.strip():
+            raise ValueError(f"proof item {number}: condition must be a nonempty string")
+        verification = item["verification"]
+        if not isinstance(verification, dict) or set(verification) not in ({"run"}, {"review"}):
+            raise ValueError(f"proof item {number}: verification must contain exactly run or review")
+        if "run" in verification:
+            command = verification["run"]
+            if not isinstance(command, str) or not command.strip() or "\x00" in command:
+                raise ValueError(f"proof item {number}: run must be a nonempty command without NUL")
+            result_key, result_type = "exit_code", int
+        else:
+            if verification["review"] != "developer":
+                raise ValueError(f"proof item {number}: review must be developer")
+            result_key, result_type = "accepted", bool
+        if stored and item["result"] is not None:
+            result = item["result"]
+            if (not isinstance(result, dict) or set(result) != {result_key}
+                    or type(result[result_key]) is not result_type):
+                raise ValueError(f"proof item {number}: invalid result")
+
+
 def add_task(directory, task):
     """Validate an approved task and store it without replacing existing records."""
     fields = {"id", "outcome", "scope", "depends_on", "proof"}
@@ -100,13 +131,7 @@ def add_task(directory, task):
     if len(set(dependencies)) != len(dependencies):
         raise ValueError("duplicate dependency")
     proof = task["proof"]
-    if not isinstance(proof, list) or not proof:
-        raise ValueError("proof must be a nonempty list")
-    for item in proof:
-        if not isinstance(item, dict) or set(item) != {"condition", "verification"}:
-            raise ValueError("each proof item must contain exactly condition and verification")
-        if any(not isinstance(value, str) or not value.strip() for value in item.values()):
-            raise ValueError("condition and verification must be nonempty strings")
+    validate_proof(proof)
 
     tasks = load_tasks(directory) if directory.exists() else {}
     ready_tasks(tasks)
@@ -136,20 +161,76 @@ def start_task(directory, task_id):
         raise ValueError(f"task is not ready: {task_id}")
 
     record = {**tasks[task_id], "state": "running"}
+    replace_task(paths[task_id], record)
+
+
+def replace_task(path, record):
+    """Replace a record atomically; concurrent writers remain unsupported."""
     content = json.dumps(record, indent=2) + "\n"
     temporary = None
     try:
         # Write fully before replacing; this is not a concurrent-writer lock.
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=directory,
-            prefix=".start-", suffix=".tmp", delete=False,
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=".task-", suffix=".tmp", delete=False,
         ) as output:
             temporary = Path(output.name)
             output.write(content)
-        os.replace(temporary, paths[task_id])
+        os.replace(temporary, path)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+def prove_task(directory, task_id, *, review=None, accepted=None):
+    """Run checks or record a relayed developer decision; never change task state."""
+    paths = {}
+    tasks = load_tasks(directory, paths=paths)
+    ready_tasks(tasks)
+    if task_id not in tasks:
+        raise ValueError(f"unknown task: {task_id}")
+    task = tasks[task_id]
+    if task["state"] != "running":
+        raise ValueError(f"task is not running: {task_id}")
+    proof = task.get("proof")
+    validate_proof(proof, stored=True)
+    if review is not None:
+        if type(review) is not int or not 1 <= review <= len(proof):
+            raise ValueError("review must name a proof item number (1-based)")
+        item = proof[review - 1]
+        if "review" not in item["verification"]:
+            raise ValueError(f"proof item {review} is not a developer review")
+        if type(accepted) is not bool:
+            raise ValueError("review requires accept or reject")
+        item["result"] = {"accepted": accepted}
+        replace_task(paths[task_id], task)
+    else:
+        if accepted is not None:
+            raise ValueError("accept or reject requires review")
+        checks = [item for item in proof if "run" in item["verification"]]
+        if checks:
+            # Do not leave old passes for checks an interrupted run never reaches.
+            for item in checks:
+                item["result"] = None
+            replace_task(paths[task_id], task)
+        for number, item in enumerate(proof, 1):
+            if "run" not in item["verification"]:
+                continue
+            completed = subprocess.run(
+                item["verification"]["run"], shell=True,
+                stdin=subprocess.DEVNULL, stdout=sys.stderr, stderr=sys.stderr,
+            )
+            item["result"] = {"exit_code": completed.returncode}
+            replace_task(paths[task_id], task)
+            print(f"{number}: exit_code: {completed.returncode}", flush=True)
+
+    for number, item in enumerate(proof, 1):
+        if "review" in item["verification"] and item["result"] != {"accepted": True}:
+            print(f"{number}: review: {item['condition']}")
+    return 0 if all(
+        item["result"] == ({"exit_code": 0} if "run" in item["verification"] else {"accepted": True})
+        for item in proof
+    ) else 1
 
 
 def unique_object(pairs):
@@ -173,7 +254,15 @@ def main():
     commands.add_parser("add", help="add a task from JSON stdin")
     start = commands.add_parser("start", help="mark a ready task running")
     start.add_argument("id", help="task ID")
+    prove = commands.add_parser("prove", help="run proof checks or relay a developer review")
+    prove.add_argument("id", help="task ID")
+    prove.add_argument("--review", type=int, help="1-based proof item number")
+    decision = prove.add_mutually_exclusive_group()
+    decision.add_argument("--accept", dest="accepted", action="store_const", const=True, default=None)
+    decision.add_argument("--reject", dest="accepted", action="store_const", const=False)
     args = parser.parse_args()
+    if args.command == "prove" and ((args.review is None) != (args.accepted is None)):
+        parser.error("--review requires exactly one of --accept or --reject, and vice versa")
     home = os.environ.get("HONEYCOMB_DIR")
     if not home or not Path(home).is_absolute():
         parser.exit(2, "error: HONEYCOMB_DIR must be an absolute path\n")
@@ -186,6 +275,8 @@ def main():
         if args.command == "start":
             start_task(directory, args.id)
             return 0
+        if args.command == "prove":
+            return prove_task(directory, args.id, review=args.review, accepted=args.accepted)
         ready = ready_tasks(load_tasks(directory))
     except (ValueError, OSError) as error:
         parser.exit(2, f"error: {error}\n")

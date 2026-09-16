@@ -20,13 +20,13 @@ From the main checkout, set the shared record location:
 export HONEYCOMB_DIR="$PWD/.honeycomb"
 ```
 
-Records are tool-managed: developers approve tasks and give feedback rather than
-edit files. JSON needs no additional parser dependency.
+Records are tool-managed JSON. Keep this absolute path when using worktrees;
+records are shared, not copied into each checkout.
 
-### Add an approved task
+### Define a task
 
 ```sh
-python3 honeycomb.py add <<'JSON'
+python3 honeycomb.py define <<'JSON'
 {
   "id": "list-ready",
   "outcome": "Developers can list tasks ready to run.",
@@ -35,66 +35,52 @@ python3 honeycomb.py add <<'JSON'
   "depends_on": [],
   "proof": [
     {
-      "condition": "Only pending tasks with all dependencies done are listed.",
-      "verification": {"run": "python3 -m unittest discover -s tests -p test_ready.py"}
+      "condition": "Only open tasks with all dependencies done are listed.",
+      "verification": "Run python3 -m unittest discover -s tests -p test_ready.py; require exit 0."
     }
   ]
 }
 JSON
 ```
 
-`add` reads one JSON object from stdin, validates it, and creates
-`$HONEYCOMB_DIR/tasks/<id>.json`. It creates the directory if needed.
-Success produces no output and exit code `0`.
+`define` reads one JSON object from stdin, validates it, and creates
+`$HONEYCOMB_DIR/tasks/<id>.json`. Success is silent, with exit code `0`.
 
-- All six input fields are required; extra fields are rejected.
-- New IDs use 1–128 ASCII letters, digits, underscores, or hyphens,
-  starting with a letter or digit. This keeps filenames safe.
-- Outcome and scope must be nonblank strings.
-- `parent` must be `null` (root) or an existing task ID. Parent cycles are rejected.
-- Dependencies must be unique existing sibling task IDs; roots count as siblings.
-  Dependency cycles are rejected. Coordinate different branches through their parents.
-- Store only `parent`; children are derived from these links, not stored as `subtasks`.
-- Proof must contain at least one item with exactly `condition` and `verification`.
-  The condition is a nonblank string. Verification contains exactly
-  `{"run": "<command>"}` (a nonblank command) or `{"review": "developer"}`.
-  Legacy verification strings are no longer accepted by `add` or `prove`.
-- The command sets `state` to `pending` and each proof `result` to `null`.
-  Callers cannot supply these managed fields.
+- Exactly the six input fields above are required.
+- IDs use 1–128 ASCII letters, digits, underscores, or hyphens,
+  starting with a letter or digit.
+- Outcome, scope, proof conditions, and verification instructions must be
+  nonblank strings. Proof must contain at least one item.
+- `parent` is `null` or an existing task ID. Store `parent`, not children.
+- Dependencies are unique existing sibling IDs; roots count as siblings.
+  Parent links and dependencies must be acyclic.
+- Each input proof item contains exactly `condition` and `verification`.
+  Verification is plain language, with no reserved strings or typed actions.
+- Tooling initializes `state: "open"` and every proof `result: null`.
+  Callers cannot supply managed fields.
 
-Invalid input, duplicate IDs, invalid stored graphs, and existing destination
-files produce an error on stderr and exit code `2`, without changing records.
-Existing tasks are never overwritten.
+Invalid input, invalid stored graphs, duplicate IDs, and existing destination
+files produce exit code `2`, without changing records. Tasks are never overwritten.
 
-Approval is a workflow requirement, not enforced by this command.
-It does not start tasks, verify proof, or perform Git operations.
+The requester approves overall intent before execution. Subtasks within its
+boundaries need no separate approval. `define` stores records; it does not enforce
+approval, start tasks, run verification, or perform Git operations.
 
-### What can run next?
+### List ready tasks
 
 ```sh
 mkdir -p "$HONEYCOMB_DIR/tasks"
 python3 honeycomb.py ready
 ```
 
-Store one JSON object per `.json` file in `$HONEYCOMB_DIR/tasks/`.
-The command reads four fields; other task fields are left alone:
+Prints sorted IDs of open tasks whose dependencies are all done. No ready tasks
+means empty output and success. Invalid records or graphs produce exit code `2`
+with no partial output. This command never changes records.
 
-```json
-{"id": "B", "state": "pending", "parent": null, "depends_on": ["A"]}
-```
-
-Existing records without `parent` are treated as roots, without rewriting them.
-New tasks must supply `parent` to `add`. Every command validates parent references,
-parent cycles, sibling-only dependencies, and dependency cycles.
-
-IDs must be unique, nonempty strings without whitespace. Every dependency must
-name an existing task. States are `pending`, `running`, or `done`.
-
-The command prints sorted IDs of pending tasks whose dependencies are all done.
-No ready tasks means empty output and success. Invalid records, missing
-references, or cycles produce an error on stderr and exit code `2`, with no
-partial results. The command never changes records or starts work. Readiness
-assumes recorded states are accurate; it does not verify proof or Git history.
+Scheduling reads `id`, `state`, `parent`, and `depends_on`; it does not validate
+proof. Stored IDs must be unique, nonempty strings without whitespace. States
+are `open`, `running`, and `done`. Missing `parent` still means root.
+Every command validates parent references, sibling dependencies, and cycles.
 
 ### Start a ready task
 
@@ -102,92 +88,72 @@ assumes recorded states are accurate; it does not verify proof or Git history.
 python3 honeycomb.py start list-ready
 ```
 
-`start <id>` requires a pending task with every dependency done. It validates
-stored records and the dependency graph, then changes only that task's `state`
-to `running`. Other fields and other records stay unchanged.
-Success produces no output and exit code `0`.
+`start <id>` changes a ready task's state to `running`, preserving all other
+fields and records. Success is silent, with exit code `0`. Unknown or unready
+tasks and invalid graphs are rejected with exit code `2`, without writes.
+IDs resolve from records, not filenames.
 
-Unknown or unready tasks and invalid stored graphs produce an error on stderr
-and exit code `2`, without changing records. Starting an already running task
-is rejected. IDs are resolved from records, not filenames.
+This remains a state-only command, not the planned `execute` command. It does
+not prepare worktrees, launch agents, or require a running parent.
 
-This command only records the transition. It does not dispatch agents, perform
-Git operations, verify proof, or enforce approval or ownership.
-
-### Prove a running task
-
-Run from the task's checkout so checks see the intended code:
+### Show or record proof
 
 ```sh
-python3 /path/to/honeycomb.py prove list-ready
+python3 honeycomb.py prove list-ready
+python3 honeycomb.py prove list-ready --item 1 --result true
+python3 honeycomb.py prove list-ready --item 1 --result false
+python3 honeycomb.py prove list-ready --item 1 --result null
 ```
 
-`prove <id>` validates the stored graph and the task's entire proof, then runs
-all command checks in order, even after failures. Commands run through the shell
-in the caller's working directory and environment, with closed stdin. Command
-output goes to stderr; stdout reports proof item numbers and actual exit codes:
+`prove <id>` displays every condition, verification instruction, and result,
+with **1-based item numbers**. Without flags, it never writes.
 
-```text
-1: exit_code: 0
-2: review: Developer accepts the wording.
-```
+`--item` and `--result` must be supplied together. Only the selected result
+changes, using atomic file replacement. Results are `null` (unproven), `true`
+(passed), or `false` (failed). Every item must be true for proof to pass.
+Both forms require a running task and validate its entire proof before output
+or writes. Neither form executes verification instructions or changes task state.
 
-Results stay in the proof item: `{"exit_code": 0}` passes; any other exit code
-fails. Each run clears old command results first and saves each new result
-atomically. An interrupted run leaves uncompleted checks unproven.
-
-Unaccepted developer reviews are returned with **1-based proof item numbers**.
-The agent asks in the existing conversation, then relays the developer's decision:
-
-```sh
-python3 honeycomb.py prove list-ready --review 2 --accept
-python3 honeycomb.py prove list-ready --review 2 --reject
-```
-
-These commands record `{"accepted": true}` or `{"accepted": false}` in only
-that review's result. They do not rerun commands. No developer answer means no
-update. Plain `prove` never grants or changes review decisions.
-The interface trusts the agent's relay; it does not authenticate the developer.
+The agent follows the instructions and records the observed outcome. Requested
+human judgments happen in the existing conversation; the agent may relay an
+answer but cannot grant someone else's approval. No answer leaves the result
+`null`. Tooling trusts this relay; it does not authenticate the verifier or
+establish that a supplied boolean is supported by evidence.
 
 Exit codes for both forms:
 
-- `0`: every proof item passes.
-- `1`: proof remains incomplete (failed check, unrun check, rejected or unanswered review).
-- `2`: invalid invocation, record, graph, or storage/launch error.
+- `0`: every proof item is true.
+- `1`: proof is incomplete or failed; a supplied result was still stored.
+- `2`: invalid input, record, graph, or storage error; no result update.
 
-Invalid input is rejected before executing commands or modifying records.
-Only running tasks can be proven. The command changes proof results, not task
-state; it does not merge, mark done, or release dependents.
+### Compatibility
 
-Verification commands are trusted code, not sandboxed: they can modify files and
-inherit credentials. No timeout is imposed. Do not use checks that mutate task
-records. Results are not bound to a Git revision; after code changes, rerun checks
-and obtain renewed review where affected. Passing a command proves it exited `0`,
-not that the command adequately tests its condition.
+This is a breaking contract change:
+
+- `define` replaces `add`; no alias remains.
+- `open` replaces `pending`; stored `pending` states are rejected.
+- `verification` is text, not a `run`/`review` object.
+- `result` is `null`/`true`/`false`, not an exit-code or acceptance object.
+- `prove --item N --result ...` replaces `--review N --accept|--reject`.
+
+Existing records are not rewritten and no migration command is provided.
+Old proof shapes cannot be used with `prove`; scheduling still leaves proof
+fields alone. Do not treat converting an old result as fresh verification.
 
 ### Limitations
 
-Keep `HONEYCOMB_DIR` pointing at the main checkout when using worktrees.
-Do not run record writers concurrently with any command. Exclusive file
-creation prevents overwrites, but graph reads and writes are not a transaction.
-Concurrent coordination and recovery from interrupted writes are not implemented.
+The CLI only partially implements the target workflow in `WORKFLOW.md`.
+There is no `execute` orchestration or `integrate` command. Parent execution,
+child-completion gates, combined-change preparation, and serialized merges
+remain unimplemented. Readiness trusts recorded states, not Git history.
 
-Hierarchy storage and validation do not orchestrate execution: readiness still
-means pending with dependencies done, regardless of the parent's state.
-Parent ownership, child completion gates, branches, and merges are not enforced.
+Proof results are not bound to a revision or target. After changes, clear affected
+results and repeat verification; stored passes do not establish merge safety.
 
-### Try it without touching project records
-
-```sh
-demo=$(mktemp -d)
-mkdir "$demo/tasks"
-printf '%s\n' '{"id":"A","state":"done","depends_on":[]}' > "$demo/tasks/A.json"
-printf '%s\n' '{"id":"B","state":"pending","depends_on":["A"]}' > "$demo/tasks/B.json"
-printf '%s\n' '{"id":"C","state":"pending","depends_on":["B"]}' > "$demo/tasks/C.json"
-printf '%s\n' '{"id":"D","state":"running","depends_on":[]}' > "$demo/tasks/D.json"
-HONEYCOMB_DIR="$demo" python3 honeycomb.py ready
-# B
-```
+Do not run record writers concurrently with any command. Graph operations are
+not transactional. Exclusive creation prevents overwrites and atomic replacement
+avoids partial updates; concurrent coordination and interrupted-creation recovery
+are not implemented.
 
 ### Tests
 

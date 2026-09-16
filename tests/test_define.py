@@ -11,7 +11,7 @@ import unittest
 COMMAND = Path(__file__).resolve().parents[1] / "honeycomb.py"
 
 
-class AddCommandTests(unittest.TestCase):
+class DefineCommandTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -25,12 +25,12 @@ class AddCommandTests(unittest.TestCase):
             "parent": None,
             "depends_on": [],
             "proof": [
-                {"condition": "Output is correct", "verification": {"run": "python3 -m unittest"}},
-                {"condition": "Records are unchanged", "verification": {"review": "developer"}},
+                {"condition": "Output is correct", "verification": "Run python3 -m unittest; require exit 0."},
+                {"condition": "Records are unchanged", "verification": "Ask the requester to inspect and approve."},
             ],
         }
 
-    def run_command(self, command="add", task=None, raw=None, home=None):
+    def run_command(self, command="define", task=None, raw=None, home=None):
         environment = os.environ.copy()
         environment["HONEYCOMB_DIR"] = str(self.home) if home is None else home
         return subprocess.run(
@@ -66,7 +66,7 @@ class AddCommandTests(unittest.TestCase):
         record = json.loads((self.tasks / "new-task_1.json").read_text())
         self.assertEqual(record, {
             **self.task,
-            "state": "pending",
+            "state": "open",
             "proof": [{**item, "result": None} for item in self.task["proof"]],
         })
         ready = self.run_command("ready")
@@ -74,7 +74,7 @@ class AddCommandTests(unittest.TestCase):
         self.assertEqual(ready.stdout, "new-task_1\n")
 
     def test_dependencies_determine_readiness(self):
-        self.store("A.json", {"id": "A", "state": "pending", "depends_on": []})
+        self.store("A.json", {"id": "A", "state": "open", "depends_on": []})
         self.task["depends_on"] = ["A"]
         before = (self.tasks / "A.json").read_bytes()
         result = self.run_command()
@@ -94,7 +94,7 @@ class AddCommandTests(unittest.TestCase):
                 (self.tasks / filename).unlink()
 
     def test_existing_filename_is_not_overwritten(self):
-        self.store("new-task_1.json", {"id": "other", "state": "pending", "depends_on": []})
+        self.store("new-task_1.json", {"id": "other", "state": "open", "depends_on": []})
         self.assert_rejected()
 
     def test_invalid_input_fields(self):
@@ -105,10 +105,10 @@ class AddCommandTests(unittest.TestCase):
             "parent": [[], {}, False, 1, "", "two words", "missing", "new-task_1"],
             "depends_on": [None, "A", [None], [[]], [""], ["two words"], ["A", "A"], ["missing"], ["new-task_1"]],
             "proof": [None, {}, [], [None], [{}], [{"condition": "C"}],
-                      [{"condition": "C", "verification": {"run": "true"}, "result": None}],
-                      [{"condition": "", "verification": {"run": "true"}}],
+                      [{"condition": "C", "verification": "Run tests", "result": None}],
+                      [{"condition": "", "verification": "Run tests"}],
                       [{"condition": "C", "verification": " "}],
-                      [{"condition": 1, "verification": {"run": "true"}}],
+                      [{"condition": 1, "verification": "Run tests"}],
                       [{"condition": "C", "verification": []}]],
         }
         self.store("baseline.json", {"id": "baseline", "state": "done", "depends_on": []})
@@ -121,19 +121,29 @@ class AddCommandTests(unittest.TestCase):
                 del task[field]
                 self.assert_rejected(task=task)
 
-    def test_invalid_verification_actions(self):
+    def test_invalid_verification_instructions(self):
         for verification in (
-            "Run tests", None, {}, {"run": ""}, {"run": " \n"},
-            {"run": 0}, {"run": "echo\x00bad"}, {"review": "agent"},
-            {"review": True}, {"review": ["developer"]},
-            {"run": "true", "review": "developer"},
-            {"run": "true", "expected": 0}, {"other": "true"},
+            None, "", " \n", 0, False, [], {},
+            {"run": "true"}, {"review": "developer"},
         ):
             with self.subTest(verification=verification):
                 self.assert_rejected(task={
                     **self.task,
                     "proof": [{"condition": "Works", "verification": verification}],
                 })
+
+    def test_plain_language_has_no_reserved_verifier_strings(self):
+        for text in ("run", "review", "developer", "Ask the designer — then run tests."):
+            with self.subTest(text=text):
+                self.task["proof"] = [{"condition": "Works", "verification": text}]
+                result = self.run_command()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                path = self.tasks / "new-task_1.json"
+                self.assertEqual(json.loads(path.read_text())["proof"][0]["verification"], text)
+                path.unlink()
+
+    def test_old_add_command_is_rejected(self):
+        self.assert_rejected(command="add")
 
     def test_unknown_and_managed_fields_are_rejected(self):
         for field, value in (("state", "done"), ("result", True), ("subtasks", []), ("typo", "x")):
@@ -151,6 +161,13 @@ class AddCommandTests(unittest.TestCase):
         for records in (
             {"A.json": "{"},
             {"A.json": '{"id":"A","state":"bad","depends_on":[]}'},
+            {"A.json": '{"id":"A","state":"pending","depends_on":[]}'},
+            {"A.json": '{"id":"A","id":"B","state":"done","depends_on":[]}'},
+            {"A.json": '{"id":"A","state":"done","depends_on":[],"extra":NaN}'},
+            {"A.json": '{"id":"A","state":"done","depends_on":["A","A"]}'},
+            {"A.json": '{"id":"A","state":"done","depends_on":[]}',
+             "duplicate.json": '{"id":"A","state":"done","depends_on":[]}'},
+            {"A.json": '[]'},
             {"A.json": '{"id":"A","state":"done","depends_on":["missing"]}'},
             {"A.json": '{"id":"A","state":"done","depends_on":["B"]}',
              "B.json": '{"id":"B","state":"done","depends_on":["A"]}'},

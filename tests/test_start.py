@@ -19,7 +19,7 @@ class StartCommandTests(unittest.TestCase):
         self.tasks = self.home / "tasks"
         self.tasks.mkdir(parents=True)
 
-    def store(self, task_id, state="pending", dependencies=None, filename=None):
+    def store(self, task_id, state="open", dependencies=None, filename=None):
         record = {
             "id": task_id,
             "outcome": "Preserve fields — including Unicode.",
@@ -88,7 +88,7 @@ class StartCommandTests(unittest.TestCase):
 
     def test_each_unfinished_dependency_blocks_start(self):
         self.store("A", "done")
-        for state in ("pending", "running"):
+        for state in ("open", "running"):
             with self.subTest(state=state):
                 self.store("B", state)
                 self.store("target", dependencies=["A", "B"])
@@ -131,12 +131,13 @@ class StartCommandTests(unittest.TestCase):
         cases = (
             "{", "[]",
             '{"id":"bad","state":"invalid","depends_on":[]}',
-            '{"id":"target","state":"pending","depends_on":[]}',
-            '{"id":"bad","state":"pending","depends_on":["missing"]}',
+            '{"id":"bad","state":"pending","depends_on":[]}',
+            '{"id":"target","state":"open","depends_on":[]}',
+            '{"id":"bad","state":"open","depends_on":["missing"]}',
             '{"id":"bad","state":"done","depends_on":["bad"]}',
-            '{"id":"bad","state":"pending","depends_on":["target","target"]}',
-            '{"id":"bad","id":"other","state":"pending","depends_on":[]}',
-            '{"id":"bad","state":"pending","depends_on":[],"extra":NaN}',
+            '{"id":"bad","state":"open","depends_on":["target","target"]}',
+            '{"id":"bad","id":"other","state":"open","depends_on":[]}',
+            '{"id":"bad","state":"open","depends_on":[],"extra":NaN}',
         )
         for raw in cases:
             with self.subTest(raw=raw):
@@ -160,18 +161,18 @@ class StartCommandTests(unittest.TestCase):
 
     def test_exactly_one_id_required_only_for_start(self):
         self.store("target")
-        for args in (("start",), ("start", "target", "extra"), ("ready", "target"), ("add", "target")):
+        for args in (("start",), ("start", "target", "extra"), ("ready", "target"), ("define", "target")):
             with self.subTest(args=args):
                 self.assert_rejected(*args)
 
-    def test_add_start_ready_integration(self):
+    def test_define_start_ready_integration(self):
         task = {
             "id": "new-task", "outcome": "Example", "scope": "Example",
             "parent": None, "depends_on": [],
-            "proof": [{"condition": "Works", "verification": {"run": "true"}}],
+            "proof": [{"condition": "Works", "verification": "Run tests; require exit 0."}],
         }
-        added = self.run_command("add", data=json.dumps(task))
-        self.assertEqual(added.returncode, 0, added.stderr)
+        defined = self.run_command("define", data=json.dumps(task))
+        self.assertEqual(defined.returncode, 0, defined.stderr)
         self.assertEqual(self.run_command("ready").stdout, "new-task\n")
         started = self.run_command("start", "new-task")
         self.assertEqual(started.returncode, 0, started.stderr)

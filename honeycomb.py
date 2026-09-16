@@ -1,16 +1,15 @@
-"""Create, list, start, and prove tasks. Uses only the Python standard library."""
+"""Define, list, start, and record proof for tasks. Python standard library only."""
 
 import argparse
 import json
 import os
 from pathlib import Path
 import re
-import subprocess
 import sys
 import tempfile
 
 
-STATES = {"pending", "running", "done"}
+STATES = {"open", "running", "done"}
 
 
 def load_tasks(directory, *, paths=None):
@@ -36,7 +35,7 @@ def load_tasks(directory, *, paths=None):
         if task_id in tasks:
             raise ValueError(f"duplicate task id: {task_id}")
         if not isinstance(task.get("state"), str) or task["state"] not in STATES:
-            raise ValueError(f"{task_id}: state must be pending, running, or done")
+            raise ValueError(f"{task_id}: state must be open, running, or done")
         dependencies = task.get("depends_on")
         if not isinstance(dependencies, list) or any(
             not isinstance(dependency, str) or not dependency for dependency in dependencies
@@ -102,13 +101,13 @@ def ready_tasks(tasks):
     return sorted(
         task_id
         for task_id, task in tasks.items()
-        if task["state"] == "pending"
+        if task["state"] == "open"
         and all(tasks[dependency]["state"] == "done" for dependency in task["depends_on"])
     )
 
 
 def validate_proof(proof, *, stored=False):
-    """Validate the entire proof before executing commands or changing results."""
+    """Validate plain-language verification and nullable boolean results."""
     if not isinstance(proof, list) or not proof:
         raise ValueError("proof must be a nonempty list")
     fields = {"condition", "verification"} | ({"result"} if stored else set())
@@ -119,25 +118,13 @@ def validate_proof(proof, *, stored=False):
         if not isinstance(condition, str) or not condition.strip():
             raise ValueError(f"proof item {number}: condition must be a nonempty string")
         verification = item["verification"]
-        if not isinstance(verification, dict) or set(verification) not in ({"run"}, {"review"}):
-            raise ValueError(f"proof item {number}: verification must contain exactly run or review")
-        if "run" in verification:
-            command = verification["run"]
-            if not isinstance(command, str) or not command.strip() or "\x00" in command:
-                raise ValueError(f"proof item {number}: run must be a nonempty command without NUL")
-            result_key, result_type = "exit_code", int
-        else:
-            if verification["review"] != "developer":
-                raise ValueError(f"proof item {number}: review must be developer")
-            result_key, result_type = "accepted", bool
-        if stored and item["result"] is not None:
-            result = item["result"]
-            if (not isinstance(result, dict) or set(result) != {result_key}
-                    or type(result[result_key]) is not result_type):
-                raise ValueError(f"proof item {number}: invalid result")
+        if not isinstance(verification, str) or not verification.strip():
+            raise ValueError(f"proof item {number}: verification must be a nonempty string")
+        if stored and item["result"] is not None and type(item["result"]) is not bool:
+            raise ValueError(f"proof item {number}: result must be null, true, or false")
 
 
-def add_task(directory, task):
+def define_task(directory, task):
     """Validate an approved task and store it without replacing existing records."""
     fields = {"id", "outcome", "scope", "parent", "depends_on", "proof"}
     if not isinstance(task, dict) or set(task) != fields:
@@ -165,7 +152,7 @@ def add_task(directory, task):
         raise ValueError(f"duplicate task id: {task_id}")
     record = {
         **task,
-        "state": "pending",
+        "state": "open",
         "proof": [{**item, "result": None} for item in proof],
     }
     ready_tasks({**tasks, task_id: record})
@@ -208,8 +195,8 @@ def replace_task(path, record):
             temporary.unlink(missing_ok=True)
 
 
-def prove_task(directory, task_id, *, review=None, accepted=None):
-    """Run checks or record a relayed developer decision; never change task state."""
+def prove_task(directory, task_id, *, item=None, result=None):
+    """Show proof or record one observed result; never execute instructions."""
     paths = {}
     tasks = load_tasks(directory, paths=paths)
     ready_tasks(tasks)
@@ -220,43 +207,21 @@ def prove_task(directory, task_id, *, review=None, accepted=None):
         raise ValueError(f"task is not running: {task_id}")
     proof = task.get("proof")
     validate_proof(proof, stored=True)
-    if review is not None:
-        if type(review) is not int or not 1 <= review <= len(proof):
-            raise ValueError("review must name a proof item number (1-based)")
-        item = proof[review - 1]
-        if "review" not in item["verification"]:
-            raise ValueError(f"proof item {review} is not a developer review")
-        if type(accepted) is not bool:
-            raise ValueError("review requires accept or reject")
-        item["result"] = {"accepted": accepted}
+    if item is not None:
+        if type(item) is not int or not 1 <= item <= len(proof):
+            raise ValueError("item must name a proof item number (1-based)")
+        if result is not None and type(result) is not bool:
+            raise ValueError("result must be null, true, or false")
+        proof[item - 1]["result"] = result
         replace_task(paths[task_id], task)
-    else:
-        if accepted is not None:
-            raise ValueError("accept or reject requires review")
-        checks = [item for item in proof if "run" in item["verification"]]
-        if checks:
-            # Do not leave old passes for checks an interrupted run never reaches.
-            for item in checks:
-                item["result"] = None
-            replace_task(paths[task_id], task)
-        for number, item in enumerate(proof, 1):
-            if "run" not in item["verification"]:
-                continue
-            completed = subprocess.run(
-                item["verification"]["run"], shell=True,
-                stdin=subprocess.DEVNULL, stdout=sys.stderr, stderr=sys.stderr,
-            )
-            item["result"] = {"exit_code": completed.returncode}
-            replace_task(paths[task_id], task)
-            print(f"{number}: exit_code: {completed.returncode}", flush=True)
+    elif result is not None:
+        raise ValueError("result requires item")
 
-    for number, item in enumerate(proof, 1):
-        if "review" in item["verification"] and item["result"] != {"accepted": True}:
-            print(f"{number}: review: {item['condition']}")
-    return 0 if all(
-        item["result"] == ({"exit_code": 0} if "run" in item["verification"] else {"accepted": True})
-        for item in proof
-    ) else 1
+    for number, entry in enumerate(proof, 1):
+        print(f"{number}: {entry['condition']}")
+        print(f"   verification: {entry['verification']}")
+        print(f"   result: {json.dumps(entry['result'])}")
+    return 0 if all(entry["result"] is True for entry in proof) else 1
 
 
 def unique_object(pairs):
@@ -277,32 +242,33 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("ready", help="list ready task IDs")
-    commands.add_parser("add", help="add a task from JSON stdin")
+    commands.add_parser("define", help="define a task from JSON stdin")
     start = commands.add_parser("start", help="mark a ready task running")
     start.add_argument("id", help="task ID")
-    prove = commands.add_parser("prove", help="run proof checks or relay a developer review")
+    prove = commands.add_parser("prove", help="show proof or record one observed result")
     prove.add_argument("id", help="task ID")
-    prove.add_argument("--review", type=int, help="1-based proof item number")
-    decision = prove.add_mutually_exclusive_group()
-    decision.add_argument("--accept", dest="accepted", action="store_const", const=True, default=None)
-    decision.add_argument("--reject", dest="accepted", action="store_const", const=False)
+    prove.add_argument("--item", type=int, help="1-based proof item number")
+    prove.add_argument("--result", choices=("true", "false", "null"), help="observed result")
     args = parser.parse_args()
-    if args.command == "prove" and ((args.review is None) != (args.accepted is None)):
-        parser.error("--review requires exactly one of --accept or --reject, and vice versa")
+    if args.command == "prove" and ((args.item is None) != (args.result is None)):
+        parser.error("--item and --result must be supplied together")
     home = os.environ.get("HONEYCOMB_DIR")
     if not home or not Path(home).is_absolute():
         parser.exit(2, "error: HONEYCOMB_DIR must be an absolute path\n")
     try:
         directory = Path(home) / "tasks"
-        if args.command == "add":
+        if args.command == "define":
             task = json.load(sys.stdin, object_pairs_hook=unique_object, parse_constant=invalid_constant)
-            add_task(directory, task)
+            define_task(directory, task)
             return 0
         if args.command == "start":
             start_task(directory, args.id)
             return 0
         if args.command == "prove":
-            return prove_task(directory, args.id, review=args.review, accepted=args.accepted)
+            return prove_task(
+                directory, args.id, item=args.item,
+                result=json.loads(args.result) if args.result is not None else None,
+            )
         ready = ready_tasks(load_tasks(directory))
     except (ValueError, OSError) as error:
         parser.exit(2, f"error: {error}\n")

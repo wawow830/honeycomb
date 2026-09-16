@@ -23,10 +23,10 @@ class HierarchyTests(unittest.TestCase):
         return {
             "id": task_id, "outcome": "Example", "scope": "Example",
             "parent": parent, "depends_on": list(dependencies),
-            "proof": [{"condition": "Works", "verification": {"run": "true"}}],
+            "proof": [{"condition": "Works", "verification": "Run tests; require exit 0."}],
         }
 
-    def store(self, task_id, parent=None, dependencies=(), state="pending", filename=None):
+    def store(self, task_id, parent=None, dependencies=(), state="open", filename=None):
         task = self.task(task_id, parent, dependencies)
         task["state"] = state
         task["proof"][0]["result"] = None
@@ -58,17 +58,17 @@ class HierarchyTests(unittest.TestCase):
             self.assertIn(message, result.stderr)
         self.assertEqual(self.snapshot(), before)
 
-    def test_add_root_child_and_grandchild(self):
+    def test_define_root_child_and_grandchild(self):
         for task_id, parent in (("T", None), ("A", "T"), ("A1", "A")):
             with self.subTest(task_id=task_id):
                 task = self.task(task_id, parent)
                 before = self.snapshot()
-                result = self.run_command("add", task=task)
+                result = self.run_command("define", task=task)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 path = self.tasks / f"{task_id}.json"
                 record = json.loads(path.read_text())
                 self.assertEqual(record, {
-                    **task, "state": "pending",
+                    **task, "state": "open",
                     "proof": [{**item, "result": None} for item in task["proof"]],
                 })
                 after = self.snapshot()
@@ -84,13 +84,13 @@ class HierarchyTests(unittest.TestCase):
         for task in (self.task("U", dependencies=["T"]),
                      self.task("B", "T", ["A"]),
                      self.task("A2", "A", ["A1"])):
-            result = self.run_command("add", task=task)
+            result = self.run_command("define", task=task)
             self.assertEqual(result.returncode, 0, result.stderr)
         result = self.run_command("ready")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "A2\nB\n")
 
-    def test_cross_branch_and_ancestor_dependencies_rejected_on_add(self):
+    def test_cross_branch_and_ancestor_dependencies_rejected_on_define(self):
         self.store("T")
         self.store("A", "T")
         self.store("B", "T")
@@ -98,29 +98,29 @@ class HierarchyTests(unittest.TestCase):
         for parent, dependencies in (("B", ["A1"]), ("A", ["A"]),
                                      (None, ["A"]), ("T", ["A1"])):
             with self.subTest(parent=parent, dependencies=dependencies):
-                self.assert_rejected("add", task=self.task("new", parent, dependencies),
+                self.assert_rejected("define", task=self.task("new", parent, dependencies),
                                      message="not a sibling")
 
     def test_new_task_requires_parent_and_rejects_invalid_parent(self):
         task = self.task("new")
         del task["parent"]
-        self.assert_rejected("add", task=task, message="expected exactly")
+        self.assert_rejected("define", task=task, message="expected exactly")
         for parent in ("missing", "new", "", "two words", 0, False, [], {}):
             with self.subTest(parent=parent):
-                self.assert_rejected("add", task=self.task("new", parent))
+                self.assert_rejected("define", task=self.task("new", parent))
 
     def test_invalid_parent_does_not_create_storage(self):
         self.tasks.rmdir()
         self.home.rmdir()
-        self.assert_rejected("add", task=self.task("new", "missing"), message="missing parent")
+        self.assert_rejected("define", task=self.task("new", "missing"), message="missing parent")
         self.assertFalse(self.home.exists())
 
     def test_invalid_hierarchy_blocks_every_command_without_execution(self):
         path = self.store("target", state="running")
         task = json.loads(path.read_text())
         task["proof"] = [
-            {"condition": "Must not execute", "verification": {"run": "touch executed"}, "result": None},
-            {"condition": "Review", "verification": {"review": "developer"}, "result": None},
+            {"condition": "Must not execute", "verification": "touch executed", "result": None},
+            {"condition": "Review", "verification": "Ask the developer to approve", "result": None},
         ]
         path.write_text(json.dumps(task))
         self.store("available")
@@ -140,7 +140,7 @@ class HierarchyTests(unittest.TestCase):
                     # Done states must not hide invalid links.
                     self.store(task_id, parent, dependencies, state="done")
                 for args in (("ready",), ("start", "available"), ("prove", "target"),
-                             ("prove", "target", "--review", "2", "--accept"), ("add",)):
+                             ("prove", "target", "--item", "2", "--result", "true"), ("define",)):
                     self.assert_rejected(*args, task=self.task("new"), message=message)
                 self.assertFalse((self.root / "executed").exists())
                 for task_id in records:
@@ -160,7 +160,7 @@ class HierarchyTests(unittest.TestCase):
         path.write_text(json.dumps(record))
         before = (path.read_bytes(), path.stat().st_mtime_ns)
         for task in (self.task("root", dependencies=["legacy"]), self.task("child", "legacy")):
-            result = self.run_command("add", task=task)
+            result = self.run_command("define", task=task)
             self.assertEqual(result.returncode, 0, result.stderr)
         result = self.run_command("ready")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -171,18 +171,18 @@ class HierarchyTests(unittest.TestCase):
         self.store("parent", state="running")
         path = self.store("child", "parent")
         self.assertEqual(self.run_command("start", "child").returncode, 0)
-        result = self.run_command("prove", "child")
+        result = self.run_command("prove", "child", "--item", "1", "--result", "true")
         self.assertEqual(result.returncode, 0, result.stderr)
         record = json.loads(path.read_text())
         self.assertEqual(record["parent"], "parent")
         self.assertEqual(record["state"], "running")
-        self.assertEqual(record["proof"][0]["result"], {"exit_code": 0})
+        self.assertIs(record["proof"][0]["result"], True)
 
     def test_deep_hierarchy_without_recursion_limit(self):
         # Lexical order visits the deepest child first, exercising a long walk.
         for number in range(1100):
             self.store(f"T{number:04}", f"T{number + 1:04}" if number < 1099 else None,
-                       state="pending" if number == 0 else "running")
+                       state="open" if number == 0 else "running")
         result = self.run_command("ready")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "T0000\n")

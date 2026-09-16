@@ -18,7 +18,7 @@ class ReadyCommandTests(unittest.TestCase):
         self.tasks = self.root / ".honeycomb" / "tasks"
         self.tasks.mkdir(parents=True)
 
-    def task(self, task_id, state="pending", dependencies=None, filename=None):
+    def task(self, task_id, state="open", dependencies=None, filename=None):
         record = {
             "id": task_id,
             "outcome": "Example outcome",
@@ -77,7 +77,7 @@ class ReadyCommandTests(unittest.TestCase):
         self.task("B", "done")
         self.assert_ready("C")
 
-    def test_pending_dependency_blocks_task(self):
+    def test_open_dependency_blocks_task(self):
         self.task("A")
         self.task("B", dependencies=["A"])
         self.assert_ready("A")
@@ -126,7 +126,7 @@ class ReadyCommandTests(unittest.TestCase):
         valid = json.loads(path.read_text())
         for field, values, message in [
             ("id", [None, 7, "", "two lines\n", []], "id must be"),
-            ("state", [None, "ready", [], 7], "state must be"),
+            ("state", [None, "pending", "ready", [], 7], "state must be"),
             ("depends_on", [None, "A", [7], [[]], [""]], "depends_on must be"),
         ]:
             for value in values:
@@ -183,7 +183,7 @@ class ReadyCommandTests(unittest.TestCase):
         for number in range(1100):
             self.task(
                 f"T{number}",
-                "done" if number < 1099 else "pending",
+                "done" if number < 1099 else "open",
                 [f"T{number - 1}"] if number else [],
             )
         self.assert_ready("T1099")

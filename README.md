@@ -35,8 +35,8 @@ python3 honeycomb.py define <<'JSON'
   "depends_on": [],
   "proof": [
     {
-      "condition": "Only open tasks with all dependencies done are listed.",
-      "verification": "Run python3 -m unittest discover -s tests -p test_ready.py; require exit 0."
+      "condition": "Only open tasks with all dependencies done and a running parent (unless root) are listed.",
+      "verification": "Run python3 -m unittest discover -s tests; require exit 0."
     }
   ]
 }
@@ -73,9 +73,10 @@ mkdir -p "$HONEYCOMB_DIR/tasks"
 python3 honeycomb.py ready
 ```
 
-Prints sorted IDs of open tasks whose dependencies are all done. No ready tasks
-means empty output and success. Invalid records or graphs produce exit code `2`
-with no partial output. This command never changes records.
+Prints sorted IDs of open tasks whose dependencies are all done and whose parent
+is running (unless root). No ready tasks means empty output and success. Invalid
+records or graphs produce exit code `2` with no partial output. This command
+never changes records.
 
 Scheduling reads `id`, `state`, `parent`, and `depends_on`; it does not validate
 proof. Stored IDs must be unique, nonempty strings without whitespace. States
@@ -94,7 +95,7 @@ tasks and invalid graphs are rejected with exit code `2`, without writes.
 IDs resolve from records, not filenames.
 
 This remains a state-only command, not the planned `execute` command. It does
-not prepare worktrees, launch agents, or require a running parent.
+not prepare worktrees or launch agents. Children require a running parent.
 
 ### Show or record proof
 
@@ -111,8 +112,11 @@ with **1-based item numbers**. Without flags, it never writes.
 `--item` and `--result` must be supplied together. Only the selected result
 changes, using atomic file replacement. Results are `null` (unproven), `true`
 (passed), or `false` (failed). Every item must be true for proof to pass.
-Both forms require a running task and validate its entire proof before output
-or writes. Neither form executes verification instructions or changes task state.
+Both forms require a running task with all children done and validate its entire
+proof before output or writes. Unfinished children cause exit code `2` without
+writes. Completed children permit parent proof; they do not supply it. Leaves
+have no child-completion requirement. Neither form executes verification
+instructions or changes task state.
 
 The agent follows the instructions and records the observed outcome. Requested
 human judgments happen in the existing conversation; the agent may relay an
@@ -143,9 +147,9 @@ fields alone. Do not treat converting an old result as fresh verification.
 ### Limitations
 
 The CLI only partially implements the target workflow in `WORKFLOW.md`.
-There is no `execute` orchestration or `integrate` command. Parent execution,
-child-completion gates, combined-change preparation, and serialized merges
-remain unimplemented. Readiness trusts recorded states, not Git history.
+There is no `execute` orchestration or `integrate` command. Combined-change
+preparation and serialized merges remain unimplemented. Readiness and
+child-completion gates trust recorded states, not Git history.
 
 Proof results are not bound to a revision or target. After changes, clear affected
 results and repeat verification; stored passes do not establish merge safety.

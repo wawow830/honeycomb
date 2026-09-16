@@ -102,6 +102,7 @@ def ready_tasks(tasks):
         task_id
         for task_id, task in tasks.items()
         if task["state"] == "open"
+        and (task.get("parent") is None or tasks[task["parent"]]["state"] == "running")
         and all(tasks[dependency]["state"] == "done" for dependency in task["depends_on"])
     )
 
@@ -205,6 +206,11 @@ def prove_task(directory, task_id, *, item=None, result=None):
     task = tasks[task_id]
     if task["state"] != "running":
         raise ValueError(f"task is not running: {task_id}")
+    if any(
+        child.get("parent") == task_id and child["state"] != "done"
+        for child in tasks.values()
+    ):
+        raise ValueError(f"task has unfinished children: {task_id}")
     proof = task.get("proof")
     validate_proof(proof, stored=True)
     if item is not None:

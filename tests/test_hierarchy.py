@@ -74,12 +74,14 @@ class HierarchyTests(unittest.TestCase):
                 after = self.snapshot()
                 del after[str(path.relative_to(self.root))]
                 self.assertEqual(after, before)
-        # Parent execution gates are outside this change's scope.
-        self.assertEqual(self.run_command("ready").stdout, "A\nA1\nT\n")
+        self.assertEqual(self.run_command("ready").stdout, "T\n")
+        for task_id, ready in (("T", "A\n"), ("A", "A1\n"), ("A1", "")):
+            self.assertEqual(self.run_command("start", task_id).returncode, 0)
+            self.assertEqual(self.run_command("ready").stdout, ready)
 
     def test_sibling_dependencies_at_each_depth(self):
         self.store("T", state="running")
-        self.store("A", "T", state="done")
+        self.store("A", "T", state="running")
         self.store("A1", "A", state="done")
         for task in (self.task("U", dependencies=["T"]),
                      self.task("B", "T", ["A"]),
@@ -88,7 +90,10 @@ class HierarchyTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
         result = self.run_command("ready")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "A2\nB\n")
+        self.assertEqual(result.stdout, "A2\n")
+        self.store("A2", "A", ["A1"], state="done")
+        self.store("A", "T", state="done")
+        self.assertEqual(self.run_command("ready").stdout, "B\n")
 
     def test_cross_branch_and_ancestor_dependencies_rejected_on_define(self):
         self.store("T")
@@ -164,7 +169,7 @@ class HierarchyTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
         result = self.run_command("ready")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "child\nroot\n")
+        self.assertEqual(result.stdout, "root\n")
         self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), before)
 
     def test_start_and_prove_preserve_parent(self):
@@ -177,6 +182,81 @@ class HierarchyTests(unittest.TestCase):
         self.assertEqual(record["parent"], "parent")
         self.assertEqual(record["state"], "running")
         self.assertIs(record["proof"][0]["result"], True)
+
+    def test_child_start_requires_running_parent_and_completed_dependencies(self):
+        for parent_state in ("open", "running", "done"):
+            for dependency_state in ("open", "running", "done"):
+                with self.subTest(parent=parent_state, dependency=dependency_state):
+                    self.store("parent", state=parent_state)
+                    self.store("sibling", "parent", state=dependency_state)
+                    path = self.store("child", "parent", ["sibling"])
+                    before = self.snapshot()
+                    ready = self.run_command("ready")
+                    self.assertEqual(ready.returncode, 0, ready.stderr)
+                    self.assertEqual(self.snapshot(), before)
+                    allowed = parent_state == "running" and dependency_state == "done"
+                    self.assertEqual("child" in ready.stdout.splitlines(), allowed)
+                    if allowed:
+                        record = json.loads(path.read_text())
+                        result = self.run_command("start", "child")
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(json.loads(path.read_text()), {**record, "state": "running"})
+                        after = self.snapshot()
+                        key = str(path.relative_to(self.root))
+                        del before[key], after[key]
+                        self.assertEqual(after, before)
+                    else:
+                        self.assert_rejected("start", "child", message="not ready")
+
+    def test_unfinished_children_block_both_prove_forms_at_every_depth(self):
+        self.store("root", state="running")
+        self.store("parent", "root", state="running")
+        for task_id in ("root", "parent"):
+            self.store("parent", "root", state="done" if task_id == "root" else "running")
+            for state in ("open", "running"):
+                with self.subTest(task=task_id, child_state=state):
+                    self.store("finished", task_id, state="done")
+                    self.store("unfinished", task_id, state=state)
+                    path = self.tasks / f"{task_id}.json"
+                    record = json.loads(path.read_text())
+                    record["proof"][0]["result"] = True
+                    path.write_text(json.dumps(record))
+                    self.assert_rejected("prove", task_id, message="unfinished children")
+                    for value in ("true", "false", "null"):
+                        self.assert_rejected("prove", task_id, "--item", "1", "--result", value,
+                                             message="unfinished children")
+
+    def test_completed_children_allow_parent_proof_but_do_not_supply_it(self):
+        self.store("root", state="running")
+        for task_id, parent in (("root", None), ("parent", "root")):
+            with self.subTest(task=task_id):
+                path = self.store(task_id, parent, state="running")
+                self.store("A", task_id, state="done")
+                self.store("B", task_id, ["A"], state="done")
+                self.store("unrelated", state="running")
+                self.store("unrelated-child", "unrelated")
+                before = self.snapshot()
+                result = self.run_command("prove", task_id)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(self.snapshot(), before)
+                result = self.run_command("prove", task_id, "--item", "1", "--result", "true")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                record = json.loads(path.read_text())
+                self.assertEqual(record["state"], "running")
+                self.assertIs(record["proof"][0]["result"], True)
+                after = self.snapshot()
+                key = str(path.relative_to(self.root))
+                del before[key], after[key]
+                self.assertEqual(after, before)
+
+    def test_parent_gate_resolves_id_not_filename(self):
+        self.store("parent", state="running", filename="z.json")
+        self.store("child", "parent", filename="a.json")
+        self.assert_rejected("prove", "parent", message="unfinished children")
+        result = self.run_command("start", "child")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.run_command("prove", "child", "--item", "1", "--result", "true")
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_deep_hierarchy_without_recursion_limit(self):
         # Lexical order visits the deepest child first, exercising a long walk.

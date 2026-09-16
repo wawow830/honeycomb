@@ -6,6 +6,8 @@ import sys
 import tempfile
 import unittest
 
+from git_support import git, init_repository
+
 
 COMMAND = Path(__file__).resolve().parents[1] / "honeycomb.py"
 
@@ -18,6 +20,7 @@ class HierarchyTests(unittest.TestCase):
         self.home = self.root / ".honeycomb"
         self.tasks = self.home / "tasks"
         self.tasks.mkdir(parents=True)
+        init_repository(self.root)
 
     def task(self, task_id, parent=None, dependencies=()):
         return {
@@ -76,8 +79,21 @@ class HierarchyTests(unittest.TestCase):
                 self.assertEqual(after, before)
         self.assertEqual(self.run_command("ready").stdout, "T\n")
         for task_id, ready in (("T", "A\n"), ("A", "A1\n"), ("A1", "")):
-            self.assertEqual(self.run_command("start", task_id).returncode, 0)
+            result = self.run_command("execute", task_id)
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(self.run_command("ready").stdout, ready)
+
+    def test_define_rejects_children_under_done_parents_without_writes(self):
+        self.store("root", state="running")
+        self.store("unrelated")
+        for ancestor in (None, "root"):
+            with self.subTest(ancestor=ancestor):
+                self.store("parent", ancestor, state="done", filename="different.json")
+                self.assert_rejected(
+                    "define", task=self.task("late-child", "parent"),
+                    message="parent is done: parent",
+                )
+                self.assertFalse((self.tasks / "late-child.json").exists())
 
     def test_sibling_dependencies_at_each_depth(self):
         self.store("T", state="running")
@@ -144,7 +160,7 @@ class HierarchyTests(unittest.TestCase):
                 for task_id, (parent, dependencies) in records.items():
                     # Done states must not hide invalid links.
                     self.store(task_id, parent, dependencies, state="done")
-                for args in (("ready",), ("start", "available"), ("prove", "target"),
+                for args in (("ready",), ("execute", "available"), ("prove", "target"),
                              ("prove", "target", "--item", "2", "--result", "true"), ("define",)):
                     self.assert_rejected(*args, task=self.task("new"), message=message)
                 self.assertFalse((self.root / "executed").exists())
@@ -164,18 +180,21 @@ class HierarchyTests(unittest.TestCase):
         del record["parent"]
         path.write_text(json.dumps(record))
         before = (path.read_bytes(), path.stat().st_mtime_ns)
-        for task in (self.task("root", dependencies=["legacy"]), self.task("child", "legacy")):
-            result = self.run_command("define", task=task)
-            self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.run_command("define", task=self.task("root", dependencies=["legacy"]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_rejected("define", task=self.task("child", "legacy"),
+                             message="parent is done: legacy")
         result = self.run_command("ready")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "root\n")
         self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), before)
 
-    def test_start_and_prove_preserve_parent(self):
+    def test_execute_and_prove_preserve_parent(self):
         self.store("parent", state="running")
+        git(self.root, "branch", "honeycomb/parent")
         path = self.store("child", "parent")
-        self.assertEqual(self.run_command("start", "child").returncode, 0)
+        self.assertEqual(self.run_command("execute", "child").returncode, 0)
+        self.assertEqual(self.run_command("prove", "child").returncode, 1)
         result = self.run_command("prove", "child", "--item", "1", "--result", "true")
         self.assertEqual(result.returncode, 0, result.stderr)
         record = json.loads(path.read_text())
@@ -183,7 +202,8 @@ class HierarchyTests(unittest.TestCase):
         self.assertEqual(record["state"], "running")
         self.assertIs(record["proof"][0]["result"], True)
 
-    def test_child_start_requires_running_parent_and_completed_dependencies(self):
+    def test_child_execute_requires_running_parent_and_completed_dependencies(self):
+        git(self.root, "branch", "honeycomb/parent")
         for parent_state in ("open", "running", "done"):
             for dependency_state in ("open", "running", "done"):
                 with self.subTest(parent=parent_state, dependency=dependency_state):
@@ -198,15 +218,18 @@ class HierarchyTests(unittest.TestCase):
                     self.assertEqual("child" in ready.stdout.splitlines(), allowed)
                     if allowed:
                         record = json.loads(path.read_text())
-                        result = self.run_command("start", "child")
+                        result = self.run_command("execute", "child")
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertEqual(json.loads(path.read_text()), {**record, "state": "running"})
-                        after = self.snapshot()
+                        # Git preparation changes Git files, never other task records.
+                        before = {k: v for k, v in before.items() if k.startswith(".honeycomb/tasks/")}
+                        after = {k: v for k, v in self.snapshot().items()
+                                 if k.startswith(".honeycomb/tasks/")}
                         key = str(path.relative_to(self.root))
                         del before[key], after[key]
                         self.assertEqual(after, before)
                     else:
-                        self.assert_rejected("start", "child", message="not ready")
+                        self.assert_rejected("execute", "child", message="not ready")
 
     def test_unfinished_children_block_both_prove_forms_at_every_depth(self):
         self.store("root", state="running")
@@ -235,6 +258,12 @@ class HierarchyTests(unittest.TestCase):
                 self.store("B", task_id, ["A"], state="done")
                 self.store("unrelated", state="running")
                 self.store("unrelated-child", "unrelated")
+                workspace = self.home / "worktrees" / task_id
+                target = "main" if parent is None else f"honeycomb/{parent}"
+                git(self.root, "worktree", "add", "-b", f"honeycomb/{task_id}",
+                    str(workspace), target)
+                prepared = self.run_command("prove", task_id)
+                self.assertEqual(prepared.returncode, 1, prepared.stderr)
                 before = self.snapshot()
                 result = self.run_command("prove", task_id)
                 self.assertEqual(result.returncode, 1, result.stderr)
@@ -251,10 +280,12 @@ class HierarchyTests(unittest.TestCase):
 
     def test_parent_gate_resolves_id_not_filename(self):
         self.store("parent", state="running", filename="z.json")
+        git(self.root, "branch", "honeycomb/parent")
         self.store("child", "parent", filename="a.json")
         self.assert_rejected("prove", "parent", message="unfinished children")
-        result = self.run_command("start", "child")
+        result = self.run_command("execute", "child")
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.run_command("prove", "child").returncode, 1)
         result = self.run_command("prove", "child", "--item", "1", "--result", "true")
         self.assertEqual(result.returncode, 0, result.stderr)
 

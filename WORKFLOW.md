@@ -5,169 +5,185 @@
 - Speed means less time to a verified, accepted change—not more code.
 - One workflow; effort scales with risk.
 - Make the process predictable. Verify agent output.
-- Developers own intent and acceptance; agents own execution.
 - Stay stack-agnostic. Keep structure simple.
-
-## Task
-
-One record shape, whether split or not:
-
-| Field | Meaning |
-| --- | --- |
-| `id` | Unique task ID. |
-| `outcome` | What must be achieved? |
-| `scope` | What may change—and what must not? |
-| `proof` | Which checks and human judgments establish success? |
-| `depends_on` | Direct prerequisite task IDs. |
-| `subtasks` | Smaller tasks, only when split. |
 
 ## Workflow
 
 ```text
-Define → Execute → Prove
-           │
-           ├─ unsplit: implement
-           └─ split: run subtasks through this same workflow
+Define → Execute → Prove → Integrate
 ```
 
-One agent owns each task. Splitting changes execution, not the workflow.
+Same workflow and commands at every depth:
+`define`, `execute`, `prove`, `integrate`.
 
-**Delegate an outcome; receive a proven result.**
-The owner handles its task's internals and returns the combined result to its parent.
+This is the target design, not the current CLI contract. Tooling is not yet
+fully aligned; this document does not change implementation.
 
 ### 1. Define
 
-Inspect the project. Fill the task's outcome, scope, and proof.
+Inspect the project. Record outcome, scope, and proof.
 Resolve consequential unknowns or have them explicitly accepted.
 
-**The developer approves the overall task before execution.**
-Subtasks need no individual approval.
+The requester approves the overall task before execution. Agents may define
+subtasks within its boundaries without separate approval.
+
+One record shape for every task:
+
+```yaml
+id: C
+parent: T
+depends_on: [A, B]
+outcome: "..."
+scope: "..."
+proof:
+  - condition: "Invalid input leaves records unchanged"
+    verification: "Run python3 -m unittest tests.test_rejection; require exit 0."
+    result: null
+  - condition: "Interaction feels right"
+    verification: "Ask the requester to try the interaction and approve it."
+    result: null
+state: open
+```
+
+`define` stores the task as `open`, with proof results initialized to `null`.
+`scope` states what may change and what must not.
 
 ### 2. Execute
 
-Wait for dependencies, then do the work:
-
-- **Unsplit:** the owner implements.
-- **Split:** the owner coordinates subtasks, without duplicating their implementation.
-
-Start with one task. Split only when each part can be proven and merged separately,
-and splitting enables parallel work or reduces risk—not merely by file, layer,
-or agent count.
-
-Agents own decomposition and execution order within the overall task's boundaries:
-
 ```text
-Inside approved boundaries → proceed.
-Overall outcome, scope, or proof must change → stop and request approval.
-```
-
-#### Scheduling
-
-Generate the DAG from task records. Store `depends_on`; derive `blocks`.
-No separate planning document.
-
-- Node: task. Edge `A → B`: B waits for A.
-- Dependencies determine order; scope conflicts require choosing an order.
-- Unclear independence means sequential execution.
-- Tooling validates the graph, detects cycles, and selects ready tasks.
-
-**Depend on complete results, not another task's internals.**
-
-```text
-T
-├─ A
-│  └─ A1
-└─ B       depends_on: [A]
-   └─ B1
-```
-
-If B1 needs A1, B waits for all of A. A1 stays inside A.
-A returns its proven result to T; B starts from updated T.
-
-```text
-pending → running → done
-```
-
-`ready` is computed: pending with every dependency done.
-Failed proof means unfinished—not another state.
-
-Each owner controls only its direct subtasks' state. Workers return evidence,
-not competing state. A subtask owner is its parent's worker and, when split,
-its children's coordinator.
-
-The parent uses two operations:
-
-```text
-start(task)
-  require pending + dependencies done
+execute(task)
+  require open
+  require dependencies done
+  require parent running, unless root
+  prepare branch + worktree from target
   mark running
-  prepare branch and worktree from current parent
-  dispatch owner
-
-finish(task, evidence)
-  require running
-  verify proof against current parent
-  merge into parent
-  mark done
+  launch owner
 ```
 
-Same rules at every depth.
-
-Store task records once in `.honeycomb/tasks/` at the main checkout root.
-Gitignore `.honeycomb/`; do not create worktree-local copies.
-
-The launcher resolves the absolute path before dispatching agents:
-
-```sh
-export HONEYCOMB_DIR="$(pwd)/.honeycomb"
-```
-
-Run this from the main checkout root. Child agents inherit the variable,
-including when launched in other worktrees. Task tooling uses
-`$HONEYCOMB_DIR/tasks/` and enforces direct-parent state ownership.
-
-Run ready tasks in parallel; isolate implementations in separate Git worktrees.
-
-#### Branches
-
-**One task, one branch.**
+One agent owns each task:
 
 ```text
-main
-└─ task
-   ├─ subtask A
-   └─ subtask B
+implement directly
+OR
+define children
+execute children through this same workflow
+wait until all children are done
 ```
 
-Every task targets its parent's branch; the overall task targets `main`.
-The hierarchy determines the merge target—no separate field.
-Integrate one task at a time per parent branch.
+Start with one task. Split only when parts can be proven and integrated
+separately, and splitting enables parallel work or reduces risk—not merely
+by file, layer, or agent count.
 
 ### 3. Prove
 
-Prove against the parent branch's current state, then merge into it.
-Completing subtasks does not prove the parent task.
-
-```yaml
-proof:
-  - run: "<verification command>"
-    exit_code: null
-  - review: "<acceptance criterion>"
-    accepted: null
+```text
+prove(task)
+  require running
+  require all children done
+  prepare combined change against current target
+  follow each verification instruction
+  record results
 ```
 
-- Runner records `exit_code`; `0` passes.
-- Developer records `accepted`; `true` passes.
-- `null` means unproven.
-- Every item must pass.
+`verification` contains plain-language instructions, interpreted by the agent,
+not automatically dispatched by type. There are no reserved verifier strings.
 
-Developer acceptance belongs inside the overall task's proof. Present the behavior,
-limitations, and evidence, with concrete examples or changes to review—not a generic
-sign-off request.
+```text
+null  → unproven
+true  → passed
+false → failed
+```
 
-Evidence stays in the task record. No separate report.
+Results must come from the specified check or person, not an agent's unsupported
+claim. The agent may relay approval, never grant it on someone else's behalf.
+Reviews happen in the existing conversation.
 
-**Done = proof proven.**
+If required approval has no answer, the result stays `null`. Integration waits.
 
-The parent marks a task done after its proven change is merged into the parent's
-branch. Dependents become ready from state; no separate release operation.
+Completed children do not prove their parent. Every condition must be proven.
+Conditions, verification instructions, and results stay together in `proof`;
+no separate evidence field or report.
+
+### 4. Integrate
+
+```text
+integrate(task)
+  require running
+  require every proof result true
+  require change and target unchanged since proof
+  merge exact proven change into target
+  mark done
+```
+
+Target is the parent's branch; roots target `main`. Derive it from `parent`;
+no separate merge-target field.
+
+Integrate one task at a time per target. If the change or target moves, return
+to **Prove**. Earlier results cannot authorize integration of a changed result.
+
+## Hierarchy and dependencies
+
+```text
+main
+└── T
+    ├── A
+    ├── B
+    └── C  depends_on: [A, B]
+```
+
+```text
+A and B execute in parallel
+A and B prove and integrate into T
+C executes from updated T
+C proves and integrates into T
+T proves the combined result and integrates into main
+```
+
+- `parent` is `null` or an existing task ID.
+- Dependencies connect siblings only; roots count as siblings.
+- Parent links and dependencies must be acyclic.
+- Cross-branch dependencies belong between parents, not their internals.
+- Scope conflicts require ordering; unclear independence means sequential execution.
+- Store `parent`; derive children.
+- Store `depends_on`; derive readiness and `blocks`.
+
+No separate planning document or stored readiness state.
+
+## State and responsibility
+
+```text
+open → running → done
+```
+
+Only integration marks a task done and unblocks dependents. Failed proof leaves
+the task running, not in another state.
+
+```text
+Requester → approves intent and requested judgments
+Agent     → implements, decomposes, follows verification instructions
+Tooling   → enforces transitions and stores results
+```
+
+Agents request updates through tooling; they do not directly edit task state.
+
+Store records once in `.honeycomb/tasks/` at the main checkout root.
+Gitignore `.honeycomb/`; do not create worktree-local copies.
+The launcher sets an absolute `HONEYCOMB_DIR` before dispatch; child agents
+inherit it across worktrees. Tooling uses `$HONEYCOMB_DIR/tasks/`.
+
+## Boundaries and retries
+
+```text
+Inside approved boundaries → proceed
+Approved outcome, scope, or proof must change → request approval
+
+Failed proof → Execute → Prove
+Merge conflict → fix conflict → Prove
+Required approval unanswered → wait
+```
+
+Fix merge conflicts while preserving the task's agreement, then prove the
+combined change again. If the fix requires changing the agreement, request
+approval.
+
+Retries stay within the running task; they do not restart its lifecycle.

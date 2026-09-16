@@ -281,7 +281,8 @@ class ProveCommandTests(unittest.TestCase):
 
     def test_add_start_prove_integration(self):
         task = {
-            "id": "new", "outcome": "Example", "scope": "Example", "depends_on": [],
+            "id": "new", "outcome": "Example", "scope": "Example",
+            "parent": None, "depends_on": [],
             "proof": [{k: v for k, v in item.items() if k != "result"} for item in (check(), review())],
         }
         added = self.run_command("add", data=json.dumps(task))

@@ -31,6 +31,7 @@ python3 honeycomb.py add <<'JSON'
   "id": "list-ready",
   "outcome": "Developers can list tasks ready to run.",
   "scope": "Read records only. No dispatch or state changes.",
+  "parent": null,
   "depends_on": [],
   "proof": [
     {
@@ -46,11 +47,14 @@ JSON
 `$HONEYCOMB_DIR/tasks/<id>.json`. It creates the directory if needed.
 Success produces no output and exit code `0`.
 
-- All five input fields are required; extra fields are rejected.
+- All six input fields are required; extra fields are rejected.
 - New IDs use 1–128 ASCII letters, digits, underscores, or hyphens,
   starting with a letter or digit. This keeps filenames safe.
 - Outcome and scope must be nonblank strings.
-- Dependencies must be unique existing task IDs; cycles are rejected.
+- `parent` must be `null` (root) or an existing task ID. Parent cycles are rejected.
+- Dependencies must be unique existing sibling task IDs; roots count as siblings.
+  Dependency cycles are rejected. Coordinate different branches through their parents.
+- Store only `parent`; children are derived from these links, not stored as `subtasks`.
 - Proof must contain at least one item with exactly `condition` and `verification`.
   The condition is a nonblank string. Verification contains exactly
   `{"run": "<command>"}` (a nonblank command) or `{"review": "developer"}`.
@@ -73,11 +77,15 @@ python3 honeycomb.py ready
 ```
 
 Store one JSON object per `.json` file in `$HONEYCOMB_DIR/tasks/`.
-The command reads three fields; other task fields are left alone:
+The command reads four fields; other task fields are left alone:
 
 ```json
-{"id": "B", "state": "pending", "depends_on": ["A"]}
+{"id": "B", "state": "pending", "parent": null, "depends_on": ["A"]}
 ```
+
+Existing records without `parent` are treated as roots, without rewriting them.
+New tasks must supply `parent` to `add`. Every command validates parent references,
+parent cycles, sibling-only dependencies, and dependency cycles.
 
 IDs must be unique, nonempty strings without whitespace. Every dependency must
 name an existing task. States are `pending`, `running`, or `done`.
@@ -163,6 +171,10 @@ Keep `HONEYCOMB_DIR` pointing at the main checkout when using worktrees.
 Do not run record writers concurrently with any command. Exclusive file
 creation prevents overwrites, but graph reads and writes are not a transaction.
 Concurrent coordination and recovery from interrupted writes are not implemented.
+
+Hierarchy storage and validation do not orchestrate execution: readiness still
+means pending with dependencies done, regardless of the parent's state.
+Parent ownership, child completion gates, branches, and merges are not enforced.
 
 ### Try it without touching project records
 

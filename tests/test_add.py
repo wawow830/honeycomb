@@ -22,6 +22,7 @@ class AddCommandTests(unittest.TestCase):
             "id": "new-task_1",
             "outcome": "List ready tasks — deterministically.",
             "scope": "Read records only.",
+            "parent": None,
             "depends_on": [],
             "proof": [
                 {"condition": "Output is correct", "verification": {"run": "python3 -m unittest"}},
@@ -101,6 +102,7 @@ class AddCommandTests(unittest.TestCase):
             "id": [None, [], 1, "", "two words", "../escape", "/absolute", "a/b", "a\\b", ".", "a" * 129],
             "outcome": [None, [], 1, "", " \n"],
             "scope": [None, {}, False, "", "\t"],
+            "parent": [[], {}, False, 1, "", "two words", "missing", "new-task_1"],
             "depends_on": [None, "A", [None], [[]], [""], ["two words"], ["A", "A"], ["missing"], ["new-task_1"]],
             "proof": [None, {}, [], [None], [{}], [{"condition": "C"}],
                       [{"condition": "C", "verification": {"run": "true"}, "result": None}],

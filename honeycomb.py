@@ -50,8 +50,32 @@ def load_tasks(directory, *, paths=None):
     return tasks
 
 
+def validate_hierarchy(tasks):
+    """Validate parent references and cycles; legacy records are roots."""
+    for task_id, task in tasks.items():
+        parent = task.get("parent")
+        if parent is not None:
+            if not isinstance(parent, str) or not parent or any(c.isspace() for c in parent):
+                raise ValueError(f"{task_id}: parent must be null or a task ID")
+            if parent not in tasks:
+                raise ValueError(f"{task_id}: missing parent {parent}")
+
+    # Walk each parent link once, without depending on Python's recursion limit.
+    visited = set()
+    for task_id in tasks:
+        chain = set()
+        current = task_id
+        while current is not None and current not in visited:
+            if current in chain:
+                raise ValueError("parent cycle detected")
+            chain.add(current)
+            current = tasks[current].get("parent")
+        visited.update(chain)
+
+
 def ready_tasks(tasks):
-    """Validate the entire dependency graph before returning sorted ready IDs."""
+    """Validate hierarchy and dependencies before returning sorted ready IDs."""
+    validate_hierarchy(tasks)
     remaining = {}
     dependents = {task_id: [] for task_id in tasks}
     for task_id, task in tasks.items():
@@ -59,6 +83,8 @@ def ready_tasks(tasks):
         for dependency in task["depends_on"]:
             if dependency not in tasks:
                 raise ValueError(f"{task_id}: missing dependency {dependency}")
+            if tasks[dependency].get("parent") != task.get("parent"):
+                raise ValueError(f"{task_id}: dependency {dependency} is not a sibling")
             dependents[dependency].append(task_id)
 
     queue = [task_id for task_id, count in remaining.items() if count == 0]
@@ -113,9 +139,9 @@ def validate_proof(proof, *, stored=False):
 
 def add_task(directory, task):
     """Validate an approved task and store it without replacing existing records."""
-    fields = {"id", "outcome", "scope", "depends_on", "proof"}
+    fields = {"id", "outcome", "scope", "parent", "depends_on", "proof"}
     if not isinstance(task, dict) or set(task) != fields:
-        raise ValueError("expected exactly: id, outcome, scope, depends_on, proof")
+        raise ValueError("expected exactly: id, outcome, scope, parent, depends_on, proof")
     task_id = task["id"]
     if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", task_id):
         raise ValueError("id must be 1–128 letters, digits, underscores, or hyphens; start with a letter or digit")

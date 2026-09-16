@@ -167,7 +167,7 @@ class StartCommandTests(unittest.TestCase):
     def test_add_start_ready_integration(self):
         task = {
             "id": "new-task", "outcome": "Example", "scope": "Example",
-            "depends_on": [],
+            "parent": None, "depends_on": [],
             "proof": [{"condition": "Works", "verification": {"run": "true"}}],
         }
         added = self.run_command("add", data=json.dumps(task))

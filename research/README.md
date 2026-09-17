@@ -38,7 +38,7 @@ An additional probe still found a qualification to the documented guarantee. Thi
 
 The useful changes were often specific: check persistence through another connection; provide a working reference; expose hard-to-reach UI states; inspect the real browser; isolate independently diagnosable failures; stop repeating an unsuccessful approach; make a human product decision.
 
-That is more applicable than “use more agents,” “write better specs,” or “add review.” Each intervention has prerequisites and a boundary beyond which it does not establish quality. [Cross-case findings and unresolved choices](07-findings.md).
+That is more applicable than “use more agents,” “write better specs,” or “add review.” Each intervention has prerequisites and a boundary beyond which it does not establish quality. [Cross-case findings and unresolved choices](10-findings.md).
 
 **No defensible universal speed multiplier emerges.** These records show useful work, plausible acceleration mechanisms, and real costs—but not complete, comparable accounting of accepted output, failed attempts, human attention, infrastructure, and long-term quality.
 

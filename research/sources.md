@@ -87,7 +87,7 @@ Both complete article bodies were read after extracting Markdown strings embedde
 
 ## productivity-check
 
-**Methodological checks, not workflow case studies.** Used in [07](07-findings.md).
+**Methodological checks, not workflow case studies.** Used in [10](10-findings.md).
 
 - METR, **July 10, 2025**: [Measuring the Impact of Early-2025 AI on Experienced Open-Source Developer Productivity](https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/). Primary report reread: 16 developers, 246 randomized real tasks, 19% longer with allowed AI in that setting; subjective estimates disagreed. Primarily early-2025 Cursor/Claude tools.
 - METR, **February 24, 2026**: [We are Changing our Developer Productivity Experiment Design](https://metr.org/blog/2026-02-24-uplift-update/). Primary follow-up reread: selection, participation, compensation, scope, and parallel-agent time-accounting limitations make the magnitude of contemporary uplift unreliable.

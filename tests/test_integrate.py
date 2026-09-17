@@ -1,6 +1,5 @@
 import importlib.util
 import json
-import os
 from pathlib import Path
 import select
 import subprocess
@@ -12,7 +11,7 @@ from unittest.mock import patch
 from git_support import git, init_repository
 
 
-COMMAND = Path(__file__).resolve().parents[1] / "honeycomb.py"
+COMMAND = Path(__file__).resolve().parents[1] / ".agents/skills/honeycomb/scripts/honeycomb.py"
 SPEC = importlib.util.spec_from_file_location("honeycomb", COMMAND)
 honeycomb = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(honeycomb)
@@ -37,7 +36,7 @@ class IntegrateCommandTests(unittest.TestCase):
     def run_command(self, *args, data=None, cwd=None):
         return subprocess.run(
             [sys.executable, str(COMMAND), *args], cwd=cwd or self.root,
-            env={**os.environ, "HONEYCOMB_DIR": str(self.home)}, input=data,
+            input=data,
             capture_output=True, text=True, timeout=10,
         )
 

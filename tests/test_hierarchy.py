@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -9,7 +8,7 @@ import unittest
 from git_support import git, init_repository
 
 
-COMMAND = Path(__file__).resolve().parents[1] / "honeycomb.py"
+COMMAND = Path(__file__).resolve().parents[1] / ".agents/skills/honeycomb/scripts/honeycomb.py"
 
 
 class HierarchyTests(unittest.TestCase):
@@ -41,7 +40,7 @@ class HierarchyTests(unittest.TestCase):
         return subprocess.run(
             [sys.executable, str(COMMAND), *args],
             input=json.dumps(task) if task is not None else None,
-            cwd=self.root, env={**os.environ, "HONEYCOMB_DIR": str(self.home)},
+            cwd=self.root,
             capture_output=True, text=True, timeout=10,
         )
 

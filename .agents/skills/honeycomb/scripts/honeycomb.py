@@ -217,11 +217,28 @@ def discard_workspace(repository, workspace, branch):
         git(repository, "branch", "-D", branch)
 
 
+def discover_repository():
+    """Resolve the current project's main checkout, including from linked worktrees."""
+    current = Path.cwd()
+    if git(current, "rev-parse", "--is-inside-work-tree") != "true":
+        raise ValueError("run Honeycomb inside a Git working tree")
+    # Git lists the main worktree first; linked worktrees share its storage.
+    first = git(current, "worktree", "list", "--porcelain", "-z").split("\0\0", 1)[0].split("\0")
+    if "bare" in first:
+        raise ValueError("Honeycomb requires a non-bare main checkout")
+    if not first[0].startswith("worktree "):
+        raise ValueError("cannot locate the main checkout")
+    repository = Path(first[0].removeprefix("worktree ")).resolve()
+    if git(repository, "rev-parse", "--is-inside-work-tree") != "true":
+        raise ValueError("cannot discover main checkout; separate Git directories are not supported")
+    return repository
+
+
 def task_repository(directory):
     """Resolve the repository from shared storage, not the caller's directory."""
     repository = directory.resolve().parent.parent
     if Path(git(repository, "rev-parse", "--show-toplevel")).resolve() != repository:
-        raise ValueError("HONEYCOMB_DIR must be directly inside the repository checkout")
+        raise ValueError("task storage must be inside .honeycomb at the main checkout root")
     return repository
 
 
@@ -497,11 +514,8 @@ def main():
     args = parser.parse_args()
     if args.command == "prove" and ((args.item is None) != (args.result is None)):
         parser.error("--item and --result must be supplied together")
-    home = os.environ.get("HONEYCOMB_DIR")
-    if not home or not Path(home).is_absolute():
-        parser.exit(2, "error: HONEYCOMB_DIR must be an absolute path\n")
     try:
-        directory = Path(home) / "tasks"
+        directory = discover_repository() / ".honeycomb" / "tasks"
         if args.command == "define":
             task = json.load(sys.stdin, object_pairs_hook=unique_object, parse_constant=invalid_constant)
             define_task(directory, task)
@@ -517,7 +531,14 @@ def main():
         if args.command == "integrate":
             integrate_task(directory, args.id)
             return 0
-        ready = ready_tasks(load_tasks(directory))
+        try:
+            directory.stat()
+        except FileNotFoundError:
+            if directory.is_symlink() or (directory.parent.is_symlink() and not directory.parent.exists()):
+                raise ValueError(f"task directory not found: {directory}")
+            ready = []
+        else:
+            ready = ready_tasks(load_tasks(directory))
     except (ValueError, OSError) as error:
         parser.exit(2, f"error: {error}\n")
     for task_id in ready:

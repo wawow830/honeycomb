@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -7,7 +6,10 @@ import tempfile
 import unittest
 
 
-COMMAND = Path(__file__).resolve().parents[1] / "honeycomb.py"
+from git_support import init_repository
+
+
+COMMAND = Path(__file__).resolve().parents[1] / ".agents/skills/honeycomb/scripts/honeycomb.py"
 
 
 class ReadyCommandTests(unittest.TestCase):
@@ -17,6 +19,7 @@ class ReadyCommandTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.tasks = self.root / ".honeycomb" / "tasks"
         self.tasks.mkdir(parents=True)
+        init_repository(self.root)
 
     def task(self, task_id, state="open", dependencies=None, filename=None):
         record = {
@@ -32,13 +35,10 @@ class ReadyCommandTests(unittest.TestCase):
         path.write_text(json.dumps(record), encoding="utf-8")
         return path
 
-    def run_command(self, home=None):
-        environment = os.environ.copy()
-        environment["HONEYCOMB_DIR"] = str(self.tasks.parent) if home is None else home
+    def run_command(self):
         return subprocess.run(
             [sys.executable, str(COMMAND), "ready"],
             cwd=self.root,
-            env=environment,
             capture_output=True,
             text=True,
             timeout=10,
@@ -151,17 +151,33 @@ class ReadyCommandTests(unittest.TestCase):
         (self.tasks / "bad.json").write_bytes(b"\xff")
         self.assert_invalid("bad.json")
 
-    def test_missing_task_directory(self):
+    def test_missing_task_directory_is_empty_without_writes(self):
         self.tasks.rmdir()
+        self.tasks.parent.rmdir()
+        self.assert_ready()
+        self.assertFalse(self.tasks.parent.exists())
+
+    def test_task_directory_is_a_file(self):
+        self.tasks.rmdir()
+        self.tasks.write_text("not a directory")
         self.assert_invalid("task directory not found")
 
-    def test_home_must_be_absolute(self):
-        for home in ["", ".honeycomb"]:
-            with self.subTest(home=home):
-                result = self.run_command(home)
-                self.assertEqual(result.returncode, 2)
-                self.assertEqual(result.stdout, "")
-                self.assertIn("HONEYCOMB_DIR must be an absolute path", result.stderr)
+    def test_home_is_a_file(self):
+        self.tasks.rmdir()
+        self.tasks.parent.rmdir()
+        self.tasks.parent.write_text("not a directory")
+        self.assert_invalid("Not a directory")
+
+    def test_dangling_task_directory_is_not_an_empty_project(self):
+        self.tasks.rmdir()
+        self.tasks.symlink_to(self.root / "missing")
+        self.assert_invalid("task directory not found")
+
+    def test_dangling_honeycomb_directory_is_not_an_empty_project(self):
+        self.tasks.rmdir()
+        self.tasks.parent.rmdir()
+        self.tasks.parent.symlink_to(self.root / "missing", target_is_directory=True)
+        self.assert_invalid("task directory not found")
 
     def test_read_only_and_repeatable(self):
         self.task("A", "done")

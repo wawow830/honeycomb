@@ -1,6 +1,5 @@
 import importlib.util
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -11,7 +10,7 @@ from unittest.mock import patch
 from git_support import git, init_repository
 
 
-COMMAND = Path(__file__).resolve().parents[1] / "honeycomb.py"
+COMMAND = Path(__file__).resolve().parents[1] / ".agents/skills/honeycomb/scripts/honeycomb.py"
 spec = importlib.util.spec_from_file_location("honeycomb", COMMAND)
 honeycomb = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(honeycomb)
@@ -45,12 +44,10 @@ class ExecuteCommandTests(unittest.TestCase):
     def workspace(self, task_id="target"):
         return self.home / "worktrees" / task_id
 
-    def run_command(self, *args, home=None, data=None, cwd=None):
-        environment = os.environ.copy()
-        environment["HONEYCOMB_DIR"] = str(self.home) if home is None else home
+    def run_command(self, *args, data=None, cwd=None):
         return subprocess.run(
             [sys.executable, str(COMMAND), *args],
-            cwd=cwd or self.root, env=environment, input=data,
+            cwd=cwd or self.root, input=data,
             capture_output=True, text=True, timeout=10,
         )
 
@@ -60,9 +57,9 @@ class ExecuteCommandTests(unittest.TestCase):
             for path in (root or self.root).rglob("*") if path.is_file()
         }
 
-    def assert_rejected(self, *args, home=None, message=None):
+    def assert_rejected(self, *args, cwd=None, message=None):
         before = self.snapshot()
-        result = self.run_command(*args, home=home)
+        result = self.run_command(*args, cwd=cwd)
         self.assertEqual(result.returncode, 2, result)
         self.assertEqual(result.stdout, "")
         self.assertIn("error:", result.stderr)
@@ -110,7 +107,7 @@ class ExecuteCommandTests(unittest.TestCase):
         (parent / "feature").write_text("uncommitted parent work")
         parent_head = git(parent, "rev-parse", "HEAD")
         self.store("target", parent="parent")
-        # The shared home, not the caller's current worktree, determines the repo.
+        # Discovery from a linked worktree still uses the main checkout's records.
         result = self.run_command("execute", "target", cwd=parent)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(git(self.workspace(), "rev-parse", "HEAD"), parent_head)
@@ -215,12 +212,6 @@ class ExecuteCommandTests(unittest.TestCase):
         (self.tasks / "bad.json").write_bytes(b"\xff")
         self.assert_rejected("execute", "target")
 
-    def test_invalid_home(self):
-        self.store("target")
-        for home in ("", ".honeycomb"):
-            with self.subTest(home=home):
-                self.assert_rejected("execute", "target", home=home)
-
     def test_missing_or_non_directory_storage(self):
         self.tasks.rmdir()
         self.assert_rejected("execute", "target", message="task directory not found")
@@ -295,7 +286,7 @@ class ExecuteCommandTests(unittest.TestCase):
         self.assert_rejected("execute", "target")
         self.assert_no_workspace()
 
-    def test_home_outside_repository_is_rejected(self):
+    def test_caller_outside_repository_is_rejected(self):
         with tempfile.TemporaryDirectory() as outside:
             home = Path(outside) / ".honeycomb"
             (home / "tasks").mkdir(parents=True)
@@ -303,7 +294,7 @@ class ExecuteCommandTests(unittest.TestCase):
             destination = home / "tasks" / "target.json"
             destination.write_bytes(source.read_bytes())
             before = destination.read_bytes()
-            self.assert_rejected("execute", "target", home=str(home))
+            self.assert_rejected("execute", "target", cwd=outside)
             self.assertEqual(destination.read_bytes(), before)
             self.assertFalse((home / "worktrees").exists())
 

@@ -1,6 +1,5 @@
 import importlib.util
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -11,7 +10,7 @@ from unittest.mock import patch
 from git_support import git, init_repository
 
 
-COMMAND = Path(__file__).resolve().parents[1] / "honeycomb.py"
+COMMAND = Path(__file__).resolve().parents[1] / ".agents/skills/honeycomb/scripts/honeycomb.py"
 SPEC = importlib.util.spec_from_file_location("honeycomb", COMMAND)
 honeycomb = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(honeycomb)
@@ -65,11 +64,10 @@ class ProveCommandTests(unittest.TestCase):
     def load(self):
         return json.loads(self.path.read_text())
 
-    def run_command(self, *args, data=None, home=None):
-        env = {**os.environ, "HONEYCOMB_DIR": str(self.home) if home is None else home}
+    def run_command(self, *args, data=None):
         return subprocess.run(
             [sys.executable, str(COMMAND), *args], cwd=self.root,
-            env=env, input=data, capture_output=True, text=True, timeout=10,
+            input=data, capture_output=True, text=True, timeout=10,
         )
 
     def snapshot(self):
@@ -78,9 +76,9 @@ class ProveCommandTests(unittest.TestCase):
             for path in self.root.rglob("*") if path.is_file()
         }
 
-    def assert_rejected(self, *args, home=None):
+    def assert_rejected(self, *args):
         before = self.snapshot()
-        result = self.run_command(*args, home=home)
+        result = self.run_command(*args)
         self.assertEqual(result.returncode, 2, result)
         self.assertEqual(result.stdout, "")
         self.assertIn("error:", result.stderr)
@@ -207,9 +205,9 @@ class ProveCommandTests(unittest.TestCase):
                 self.assert_rejected("prove", "target")
                 self.assert_rejected("prove", "target", "--item", "1", "--result", "true")
 
-    def test_invalid_or_missing_storage(self):
-        for home in ("", ".honeycomb", str(self.root / "missing")):
-            self.assert_rejected("prove", "target", home=home)
+    def test_missing_storage(self):
+        self.tasks.rename(self.home / "saved-tasks")
+        self.assert_rejected("prove", "target")
 
     def test_ids_resolve_from_record_not_filename(self):
         result = self.run_command("prove", "target", "--item", "1", "--result", "true")
@@ -485,7 +483,7 @@ class ProveCommandTests(unittest.TestCase):
     def test_proof_can_be_recorded_from_task_worktree(self):
         result = subprocess.run(
             [sys.executable, str(COMMAND), "prove", "target", "--item", "1", "--result", "true"],
-            cwd=self.workspace, env={**os.environ, "HONEYCOMB_DIR": str(self.home)},
+            cwd=self.workspace,
             capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(result.returncode, 1, result.stderr)

@@ -1,255 +1,195 @@
-# honeycomb
+# Honeycomb
 
-## Goals
-- turbo speed development
-- without compromise of quality or taste
-- be as deterministic as possible
-    - clear bounds
-    - clear input/processing/output
-    - everything must follow a structure
-- stack agnostic
-- simplicity rules
+Project-local agent workflow: **Define → Execute → Prove → Integrate**.
 
-## Usage
+Goals: faster verified, accepted changes without sacrificing quality or taste;
+explicit boundaries and structure; stack independence; simplicity.
 
-Requires Python 3.10+, with no third-party Python packages. `execute`, `prove`,
-and `integrate` also require Git and a local `main` branch with at least one
-commit. `integrate` requires Unix advisory file locks (`fcntl.flock`).
+## Install in a project
 
-From the main checkout, set the shared record location:
-
-```sh
-export HONEYCOMB_DIR="$PWD/.honeycomb"
-```
-
-Records are tool-managed JSON. Keep this absolute path when using worktrees;
-records are shared, not copied into each checkout. Keep `.honeycomb/` gitignored.
-
-### Define a task
-
-```sh
-python3 honeycomb.py define <<'JSON'
-{
-  "id": "list-ready",
-  "outcome": "Developers can list tasks ready to run.",
-  "scope": "Read records only. No dispatch or state changes.",
-  "parent": null,
-  "depends_on": [],
-  "proof": [
-    {
-      "condition": "Only open tasks with all dependencies done and a running parent (unless root) are listed.",
-      "verification": "Run python3 -m unittest discover -s tests; require exit 0."
-    }
-  ]
-}
-JSON
-```
-
-`define` reads one JSON object from stdin, validates it, and creates
-`$HONEYCOMB_DIR/tasks/<id>.json`. Success is silent, with exit code `0`.
-
-- Exactly the six input fields above are required.
-- IDs use 1–128 ASCII letters, digits, underscores, or hyphens,
-  starting with a letter or digit.
-- Outcome, scope, proof conditions, and verification instructions must be
-  nonblank strings. Proof must contain at least one item.
-- `parent` is `null` or an existing task ID. Store `parent`, not children.
-  Defining a child under a `done` parent is rejected without changing records.
-- Dependencies are unique existing sibling IDs; roots count as siblings.
-  Parent links and dependencies must be acyclic.
-- Each input proof item contains exactly `condition` and `verification`.
-  Verification is plain language, with no reserved strings or typed actions.
-- Tooling initializes `state: "open"` and every proof `result: null`.
-  Callers cannot supply managed fields.
-
-Invalid input, invalid stored graphs, duplicate IDs, and existing destination
-files produce exit code `2`, without changing records. Tasks are never overwritten.
-
-The requester approves overall intent before execution. Subtasks within its
-boundaries need no separate approval. `define` stores records; it does not enforce
-approval, start tasks, run verification, or perform Git operations.
-
-### List ready tasks
-
-```sh
-mkdir -p "$HONEYCOMB_DIR/tasks"
-python3 honeycomb.py ready
-```
-
-Prints sorted IDs of open tasks whose dependencies are all done and whose parent
-is running (unless root). No ready tasks means empty output and success. Invalid
-records or graphs produce exit code `2` with no partial output. This command
-never changes records.
-
-Scheduling reads `id`, `state`, `parent`, and `depends_on`; it does not validate
-proof. Stored IDs must be unique, nonempty strings without whitespace. States
-are `open`, `running`, and `done`. Missing `parent` still means root.
-Every command validates parent references, sibling dependencies, and cycles.
-
-### Prepare task execution
-
-```sh
-python3 honeycomb.py execute list-ready
-```
-
-`execute <id>` checks readiness, creates a branch and worktree, then marks the
-task `running`. Success prints the absolute workspace path and exits `0`.
-All other record fields and other tasks remain unchanged.
+Copy this repository's `.agents/skills/honeycomb/` directory into the same
+location in your project:
 
 ```text
-branch:    honeycomb/<id>
-workspace: $HONEYCOMB_DIR/worktrees/<id>
-target:    main (root) or honeycomb/<parent> (child)
+.agents/skills/honeycomb/    # versioned, self-contained skill
+├── SKILL.md                # agent instructions and workflow rules
+└── scripts/
+    └── honeycomb.py        # deterministic operations
+.honeycomb/                # ignored, local runtime state
 ```
 
-Children require a running parent; every dependency must be done. Preparation
-starts from the target's committed tip, not uncommitted work. The current checkout
-and target branch are left unchanged. No agent is launched; no proof or merge runs.
+Add `/.honeycomb/` to the project's `.gitignore`. Commit the skill and ignore rule
+to the branch used as the execution target before starting tasks. Existing
+project files and unrelated work should be preserved.
 
-`HONEYCOMB_DIR` must sit directly inside the main repository checkout. It selects
-the repository regardless of the caller's directory. Keep using that same absolute
-path from task worktrees. Records resolve by ID, not filename; execution requires
-both task and parent IDs to satisfy the `define` ID format.
+Requires Python 3.10+ and Git; no third-party Python packages. Execution requires
+a local `main` branch with at least one commit. Integration requires Unix
+advisory locks (`fcntl.flock`). The main checkout must have its Git directory
+at `.git`; separate Git directories and bare-main repositories are not supported.
 
-Unknown or unready tasks, invalid graphs, missing target branches, and existing
-task branches or workspace paths are rejected with exit code `2`, without writes.
-Existing workspaces and branches are never reused or reset.
+Open the project in an agent that discovers `.agents/skills/`, and ask it to use
+Honeycomb for your request. The agent reads the skill, aligns the task with you,
+and handles the CLI. No global installation, agent-specific adapter, or manual
+environment setup is needed. Agents without that discovery convention must be
+explicitly directed to `SKILL.md`; Honeycomb does not install integrations for them.
 
-Preparation or record-write failure leaves the task `open`. Newly created resources
-are rolled back when safe; cleanup never force-deletes a worktree. If cleanup fails,
-the error requests inspection before retrying. Process termination can leave partial
-preparation; automatic crash recovery and concurrent execution are not supported.
+**[SKILL.md](.agents/skills/honeycomb/SKILL.md) is the workflow rulebook**, including
+approval, task decomposition, verification, and recovery instructions.
 
-### Show or record proof
+## CLI reference
+
+From the project checkout root:
 
 ```sh
-python3 honeycomb.py prove list-ready
-python3 honeycomb.py prove list-ready --item 1 --result true
-python3 honeycomb.py prove list-ready --item 1 --result false
-python3 honeycomb.py prove list-ready --item 1 --result null
+python3 .agents/skills/honeycomb/scripts/honeycomb.py --help
 ```
 
-Run `prove <id>` **before verification**. It captures the task and target commits
-in a tool-managed `proof_snapshot: {"task": "<commit>", "target": "<commit>"}`,
-then displays every condition, instruction, and result with **1-based item numbers**.
-The task workspace must be clean and on its task branch in the shared repository.
-Staged, unstaged, and untracked changes prevent proof.
+The caller's current directory selects the repository. Git's worktree listing
+identifies its main checkout, even when invoked from a linked worktree or nested
+subdirectory. Shared records live at `<main-checkout>/.honeycomb/tasks/` and
+workspaces at `<main-checkout>/.honeycomb/worktrees/`. Script location does not
+select the project. No worktree-local state is created.
 
-The current target commit must already be an ancestor of the task commit.
-`prove` checks this with `git merge-base --is-ancestor`; it never merges.
-If the target is missing, merge it into the task branch in the task workspace,
-resolve conflicts and commit, then retry `prove` before verification.
+All commands validate stored task IDs, states, hierarchy, sibling dependencies,
+and cycles before operating. `define` reads one JSON object on stdin; other
+commands take arguments. All errors exit 2. Success exits 0, except that `prove`
+exits 1 for incomplete or failed proof.
 
-Follow the verification instructions in the task workspace, then record results
-with `--item` and `--result` together. Results are `null` (unproven), `true`
-(passed), or `false` (failed). Every item must be true for proof to pass.
+### `define`
 
-Every call rechecks the snapshot:
+The [skill](.agents/skills/honeycomb/SKILL.md#1-define) gives the input shape and
+an invocation example. Exactly six input fields are required: `id`, `outcome`,
+`scope`, `parent`, `depends_on`, and `proof`.
 
-- Dirty task workspace or target not included: clear **all** results and the
-  snapshot, then reject proof. No supplied result is recorded.
-- Clean workspace with target included, but either commit changed or no snapshot:
-  clear all results and capture a new snapshot. A supplied result is rejected;
-  repeat verification before recording it.
-- Same commits, clean workspace, and target included: show results or update only
-  the selected item.
-- An ancestry check returning anything other than `0` (included) or `1` (missing)
-  is a Git error; stop without recording results.
+Creates `tasks/<id>.json`, initializing `state: "open"` and proof results to
+`null`. Success is silent. IDs must match `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`.
+Outcome, scope, conditions, and verification instructions must be nonblank;
+proof must be nonempty. Each input proof item has exactly `condition` and
+`verification`. Managed fields cannot be supplied.
 
-Without flags, `prove` can therefore write to establish or invalidate a snapshot.
-An unchanged snapshot causes no write. Record changes use atomic replacement.
-Both forms require a running task with all children done and validate its entire
-proof before output or writes. Unfinished children cause exit code `2` without
-writes. Completed children permit parent proof; they do not supply it. Leaves
-have no child-completion requirement. Neither form executes verification
-instructions or changes task state.
+Duplicate JSON keys, invalid JSON constants, invalid input or stored graphs,
+duplicate IDs, and existing destination files are rejected without changing
+records. Exclusive creation prevents overwrites. Storage is created on demand.
+Approval is not authenticated or enforced by this command.
 
-The agent follows the instructions and records the observed outcome. Requested
-human judgments happen in the existing conversation; the agent may relay an
-answer but cannot grant someone else's approval. No answer leaves the result
-`null`. Tooling trusts this relay; it does not authenticate the verifier or
-establish that a supplied boolean is supported by evidence.
+### `ready`
 
-Exit codes for both forms:
+Prints sorted IDs of open tasks with all dependencies done and a running parent
+(unless root). A fresh project with no task storage, or no ready tasks, succeeds
+with empty output. Does not write. Invalid records produce no partial output.
 
-- `0`: every proof item is true.
-- `1`: proof is incomplete or failed; a supplied result was still stored.
-- `2`: invalid input, Git/workspace, record, graph, or storage error, or a supplied
-  result belongs to an outdated snapshot. No supplied result is recorded; stale
-  results may have been cleared.
+Scheduling validates `id`, `state`, `parent`, and `depends_on`, not proof. Stored
+IDs must be unique nonempty strings without whitespace. Missing `parent` is
+accepted as a legacy root. Every command checks hierarchy and dependency graphs.
 
-### Integrate a proven task
+### `execute <id>`
 
-```sh
-python3 honeycomb.py integrate list-ready
-```
+Checks readiness, creates branch `honeycomb/<id>` and its worktree, then marks
+the task running. Prints the absolute workspace path. Task and parent IDs must
+satisfy the `define` ID format. Target is `main` for a root or
+`honeycomb/<parent>` for a child.
 
-`integrate <id>` requires a running task, all children done, and every proof
-result `true`. It rechecks the clean task workspace, exact task/target snapshot,
-and target ancestry before moving Git. Missing or stale proof is rejected;
-run `prove` and repeat verification before retrying.
+Starts from the target's committed tip, not uncommitted work. Existing branches
+or workspace paths are rejected, never reused or reset. Current checkout,
+target branch, unrelated records, and other record fields remain unchanged.
+No agent is launched and no proof or merge runs.
 
-The target is `main` for roots or `honeycomb/<parent>` for children. Integration
-fast-forwards it to the exact proven task commit, then marks the task `done`.
-No merge commit is created. Other record fields and other tasks stay unchanged.
-Success is silent and exits `0`; errors exit `2`.
+Preparation or record-write failure leaves the task open. Newly created
+resources are rolled back when safe; cleanup never force-deletes a worktree.
+Cleanup failure requests inspection. Process termination can leave partial
+preparation; automatic crash recovery is not implemented.
 
-- If the target is checked out, its checkout must be clean with no unfinished
-  Git operation. Integration updates that checkout without switching branches.
-  It does not stash, overwrite ignored files, or run merge hooks. Branch-specific
-  merge options are ignored to enforce the fast-forward operation.
-- If the target is not checked out, integration updates its local ref using
-  compare-and-swap. The caller's checkout is untouched.
-- Integrations sharing a target wait on the same advisory lock in the repository's
-  Git directory. After acquiring it, they reload records and recheck proof.
-  Different targets have separate locks. Lock files persist; OS locks release
-  when the process exits.
+### `prove <id> [--item N --result true|false|null]`
 
-Rejected preconditions do not change task records or branches. A failed Git
-operation may update Git bookkeeping such as `ORIG_HEAD`. If Git advances but
-saving `done` fails, the task stays running; integration does not roll back the
-branch. Inspect the target, run `prove`, repeat verification, then retry
-`integrate`. A process interruption between the Git update and record update
-requires the same recovery. Worktrees and task branches are retained.
+Both flags must be present together. Requires a running task, all children done,
+valid proof, and its prepared workspace. Item numbers are 1-based. Without flags,
+prints numbered conditions, instructions, and results; it may also establish or
+invalidate a proof snapshot.
 
-### Compatibility
+The workspace must belong to the shared repository, be on the task branch, and
+have no staged, unstaged, or untracked changes. The current target must be an
+ancestor of the task commit. The CLI checks ancestry but does not combine branches.
 
-This is a breaking contract change:
+A tool-managed `proof_snapshot: {"task": "<commit>", "target": "<commit>"}` binds
+results to exact commits:
 
-- `define` replaces `add`; no alias remains.
-- `execute` replaces `start`; no state-only alias remains.
-- Previously running tasks are not assigned branches or worktrees retroactively.
-- `open` replaces `pending`; stored `pending` states are rejected.
-- `verification` is text, not a `run`/`review` object.
-- `result` is `null`/`true`/`false`, not an exit-code or acceptance object.
-- `prove --item N --result ...` replaces `--review N --accept|--reject`.
-- Proof requires the task workspace prepared by `execute`. Run `prove <id>` before
-  verification; unbound historical passes are cleared, not adopted.
+- Dirty task workspace or target not included: clear all results and the
+  snapshot, then reject. No supplied result is recorded.
+- Clean, target included, but either commit changed or no snapshot: clear all
+  results and capture a new snapshot. A supplied result is rejected; repeat
+  verification before recording it.
+- Same commits, clean workspace, target included: display or update one result.
+- An ancestry check returning anything other than 0 or 1 is a Git error; stop
+  without recording results.
 
-Existing records are not rewritten and no migration command is provided.
-Old proof shapes cannot be used with `prove`; scheduling still leaves proof
-fields alone. Do not treat converting an old result as fresh verification.
+Unfinished children or invalid proof are rejected without writes. With an
+unchanged snapshot, displaying results causes no write. Updates use atomic
+replacement. Verification instructions are plain language: neither form runs
+checks or changes task state.
 
-### Limitations
+Exit 0 means every item is true. Exit 1 means incomplete or failed; an individual
+supplied result was still stored. Exit 2 means invalid input, Git/workspace,
+record, graph, storage, or outdated supplied result. No supplied result is
+recorded on exit 2, though stale results may have been cleared.
 
-The CLI only partially implements the target workflow in `WORKFLOW.md`.
-`execute` prepares workspaces but does not launch agents. Agents prepare combined
-changes and perform verification; `integrate` enforces the final fast-forward.
-Readiness and child-completion gates trust recorded states, not Git history.
+### `integrate <id>`
 
-Proof binds committed task content to the target's committed tip, not uncommitted
-work in the target checkout, ignored files, or external environment state. Changes
-are detected on `prove` and `integrate`, not watched continuously. Proof requires
-the target to be included but does not combine branches.
+Requires a running task, all children done, all results true, the exact current
+proof snapshot, a clean task workspace, and target ancestry. Fast-forwards the
+target to the proven task commit, then marks the task done. Success is silent.
+Other fields and records remain unchanged. Branches and worktrees are retained.
 
-Only integration-versus-integration concurrency is coordinated. Do not run other
-record writers or Git mutations concurrently with these commands. The integration
-lock is advisory; external tools do not honor it. Git and record updates are not
-one transaction. Exclusive creation prevents overwrites and atomic replacement
-avoids partial records; automatic crash recovery is not implemented.
+- If checked out, the target workspace must be clean and have no unfinished Git
+  operation. Integration updates it without switching branches, stashing,
+  overwriting ignored files, or running merge hooks. Branch merge options are
+  ignored to enforce fast-forwarding.
+- If not checked out, the target ref is updated with compare-and-swap; the caller's
+  checkout is untouched.
+- Integrations sharing a target wait on an advisory lock in the shared Git
+  directory, then reload records and recheck proof. Different targets have
+  independent locks. Lock files persist; OS locks release when the process exits.
 
-### Tests
+Rejected preconditions leave branches and records unchanged. A failed Git
+operation may update bookkeeping such as `ORIG_HEAD`. Git and records are not
+one transaction: if Git advances but saving `done` fails or is interrupted, the
+task remains running. Inspect the target, run `prove`, repeat verification, and
+retry integration. Integration does not roll back an advanced branch.
+
+## Limits
+
+- The skill guides agent behavior; it cannot prevent bypassing the CLI.
+- `execute` prepares workspaces, not agents. `prove` binds and records results,
+  not their evidence. The CLI trusts the agent's relay of checks and approvals.
+- Readiness and child-completion gates trust recorded states, not Git history.
+- Proof binds committed content, not ignored files, uncommitted target work, or
+  external environment state. Changes are detected on commands, not continuously.
+- Only integration-versus-integration concurrency is coordinated. Other record
+  writers and Git mutations must not run concurrently with CLI operations.
+  External tools do not honor Honeycomb's advisory locks.
+- No amendment, migration, cleanup, or automatic crash-recovery command exists.
+
+## Compatibility
+
+The executable moved from `honeycomb.py` to the skill's `scripts/honeycomb.py`;
+there is no root-level wrapper. `HONEYCOMB_DIR` is no longer used. Run commands
+inside the intended repository. Every command now requires Git for discovery.
+Existing `.honeycomb/tasks/` records at the main checkout remain in place and
+are not rewritten by packaging.
+
+Earlier contracts remain unsupported: `add`/`start` aliases, `pending` state,
+`run`/`review` verification objects, and non-boolean proof results. Legacy
+running tasks are not assigned workspaces retroactively. Unbound historical
+passes are cleared, never adopted as fresh proof.
+
+## Development
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
+
+Tests cover transition gates, Git safety, shared-state discovery, and the copied
+skill's full CLI lifecycle. They do not establish that an agent reliably follows
+the instructions or that every host discovers the skill.
+
+`research/` contains dated evidence and design investigations, not additional
+workflow rules.

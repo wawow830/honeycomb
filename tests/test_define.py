@@ -1,6 +1,5 @@
 import copy
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -8,7 +7,10 @@ import tempfile
 import unittest
 
 
-COMMAND = Path(__file__).resolve().parents[1] / "honeycomb.py"
+from git_support import init_repository
+
+
+COMMAND = Path(__file__).resolve().parents[1] / ".agents/skills/honeycomb/scripts/honeycomb.py"
 
 
 class DefineCommandTests(unittest.TestCase):
@@ -16,6 +18,7 @@ class DefineCommandTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        init_repository(self.root)
         self.home = self.root / ".honeycomb"
         self.tasks = self.home / "tasks"
         self.task = {
@@ -30,13 +33,11 @@ class DefineCommandTests(unittest.TestCase):
             ],
         }
 
-    def run_command(self, command="define", task=None, raw=None, home=None):
-        environment = os.environ.copy()
-        environment["HONEYCOMB_DIR"] = str(self.home) if home is None else home
+    def run_command(self, command="define", task=None, raw=None):
         return subprocess.run(
             [sys.executable, str(COMMAND), command],
             input=json.dumps(self.task if task is None else task) if raw is None else raw,
-            cwd=self.root, env=environment, capture_output=True, text=True, timeout=10,
+            cwd=self.root, capture_output=True, text=True, timeout=10,
         )
 
     def snapshot(self):
@@ -179,11 +180,6 @@ class DefineCommandTests(unittest.TestCase):
                 self.assert_rejected()
                 for name in records:
                     (self.tasks / name).unlink()
-
-    def test_invalid_home(self):
-        for home in ("", ".honeycomb"):
-            with self.subTest(home=home):
-                self.assert_rejected(home=home)
 
     def test_task_directory_is_a_file(self):
         self.home.mkdir()

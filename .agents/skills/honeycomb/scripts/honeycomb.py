@@ -1,4 +1,4 @@
-"""Define, execute, prove, and integrate tasks. Standard library only."""
+"""Define, execute, prove, integrate, and close tasks. Standard library only."""
 
 import argparse
 from contextlib import contextmanager
@@ -11,7 +11,7 @@ import sys
 import tempfile
 
 
-STATES = {"open", "running", "done"}
+STATES = {"open", "running", "done", "closed"}
 TASK_ID = r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}"
 
 
@@ -38,7 +38,7 @@ def load_tasks(directory, *, paths=None):
         if task_id in tasks:
             raise ValueError(f"duplicate task id: {task_id}")
         if not isinstance(task.get("state"), str) or task["state"] not in STATES:
-            raise ValueError(f"{task_id}: state must be open, running, or done")
+            raise ValueError(f"{task_id}: state must be open, running, done, or closed")
         dependencies = task.get("depends_on")
         if not isinstance(dependencies, list) or any(
             not isinstance(dependency, str) or not dependency for dependency in dependencies
@@ -75,6 +75,16 @@ def validate_hierarchy(tasks):
         visited.update(chain)
 
 
+def closed_ancestor(task, tasks):
+    """Find a closed ancestor in a validated hierarchy, even during partial closure."""
+    parent = task.get("parent")
+    while parent is not None:
+        if tasks[parent]["state"] == "closed":
+            return parent
+        parent = tasks[parent].get("parent")
+    return None
+
+
 def ready_tasks(tasks):
     """Validate hierarchy and dependencies before returning sorted ready IDs."""
     validate_hierarchy(tasks)
@@ -106,6 +116,7 @@ def ready_tasks(tasks):
         for task_id, task in tasks.items()
         if task["state"] == "open"
         and (task.get("parent") is None or tasks[task["parent"]]["state"] == "running")
+        and closed_ancestor(task, tasks) is None
         and all(tasks[dependency]["state"] == "done" for dependency in task["depends_on"])
     )
 
@@ -163,6 +174,9 @@ def define_task(directory, task):
     parent = record["parent"]
     if parent is not None and tasks[parent]["state"] == "done":
         raise ValueError(f"parent is done: {parent}")
+    ancestor = closed_ancestor(record, tasks)
+    if ancestor is not None:
+        raise ValueError(f"ancestor is closed: {ancestor}")
     content = json.dumps(record, indent=2) + "\n"
     directory.mkdir(parents=True, exist_ok=True)
     # Exclusive creation protects existing paths, even if filenames differ from IDs.
@@ -321,13 +335,46 @@ def replace_task(path, record):
             temporary.unlink(missing_ok=True)
 
 
+def close_task(directory, task_id):
+    """Close a subtree without touching Git; retry safely after partial writes."""
+    paths = {}
+    tasks = load_tasks(directory, paths=paths)
+    ready_tasks(tasks)
+    if task_id not in tasks:
+        raise ValueError(f"unknown task: {task_id}")
+    if tasks[task_id]["state"] == "done":
+        raise ValueError(f"task is done: {task_id}")
+
+    children = {key: [] for key in tasks}
+    for key, task in tasks.items():
+        parent = task.get("parent")
+        if parent is not None:
+            children[parent].append(key)
+
+    # Persist the root first: its closed state blocks all descendants even if
+    # later writes fail. Do not roll back. Retrying traverses closed nodes too.
+    pending = [task_id]
+    try:
+        while pending:
+            current = pending.pop()
+            task = tasks[current]
+            if task["state"] in {"open", "running"}:
+                replace_task(paths[current], {**task, "state": "closed"})
+            pending.extend(reversed(children[current]))
+    except (ValueError, OSError) as error:
+        raise ValueError(f"closure may be incomplete: {error}; retry close {task_id}") from error
+
+
 def require_provable(task, tasks):
-    """Require a running task, finished children, and valid proof structure."""
+    """Require an active running task, settled children, and valid proof structure."""
     task_id = task["id"]
     if task["state"] != "running":
         raise ValueError(f"task is not running: {task_id}")
+    ancestor = closed_ancestor(task, tasks)
+    if ancestor is not None:
+        raise ValueError(f"ancestor is closed: {ancestor}")
     if any(
-        child.get("parent") == task_id and child["state"] != "done"
+        child.get("parent") == task_id and child["state"] not in {"done", "closed"}
         for child in tasks.values()
     ):
         raise ValueError(f"task has unfinished children: {task_id}")
@@ -511,6 +558,8 @@ def main():
     prove.add_argument("--result", choices=("true", "false", "null"), help="observed result")
     integrate = commands.add_parser("integrate", help="fast-forward the target to the proven task")
     integrate.add_argument("id", help="task ID")
+    close = commands.add_parser("close", help="close a task and its unfinished descendants, preserving work")
+    close.add_argument("id", help="task ID")
     args = parser.parse_args()
     if args.command == "prove" and ((args.item is None) != (args.result is None)):
         parser.error("--item and --result must be supplied together")
@@ -530,6 +579,9 @@ def main():
             )
         if args.command == "integrate":
             integrate_task(directory, args.id)
+            return 0
+        if args.command == "close":
+            close_task(directory, args.id)
             return 0
         try:
             directory.stat()

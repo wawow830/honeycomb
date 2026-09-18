@@ -106,13 +106,13 @@ Do not add a launcher or require multiple agents just to follow this workflow.
 Implement directly, or define children and execute them through this same loop.
 Split only when parts can be proven and integrated separately and splitting
 allows useful parallelism or reduces risk—not merely by file, layer, or agent
-count. Parent completion waits for all children.
+count. Parent completion waits for all children to be done or closed.
 
 ## 3. Prove
 
-Finish all children, commit the task's changes, and include the current target
-commit in the task branch. Resolve any conflicts in the task workspace, not by
-merging unproven work into the target.
+Finish or explicitly close all children, commit the task's changes, and include
+the current target commit in the task branch. Resolve any conflicts in the task
+workspace, not by merging unproven work into the target.
 
 ```sh
 python3 .agents/skills/honeycomb/scripts/honeycomb.py prove example
@@ -157,7 +157,7 @@ proof; it does not mean that recording an individual result failed.
 python3 .agents/skills/honeycomb/scripts/honeycomb.py integrate example
 ```
 
-Requires a running task, all children done, all proof items true, clean
+Requires a running task, all children done or closed, all proof items true, clean
 workspaces, and unchanged proven commits. Fast-forwards the target to the exact
 proven task commit, then marks the task done. Roots target `main`; children
 target their parent's branch. Only integration completes a task and unblocks
@@ -166,15 +166,50 @@ dependents. Branches and worktrees are retained.
 Do not bypass failed gates by editing records or manually moving the target.
 If the target advanced, combine it into the task branch and repeat proof.
 
+## Closing a task
+
+When a task is no longer worth pursuing within the approved scope:
+
+```sh
+python3 .agents/skills/honeycomb/scripts/honeycomb.py close example
+```
+
+`close` marks an open or running task and all its unfinished descendants
+`closed`. Completed descendants remain `done`. Dependents outside the subtree
+are untouched and remain blocked: only `done` satisfies a dependency.
+
+Closed tasks are terminal: no execution, proof, integration, new children, or
+ID reuse. A replacement needs a new task and agreement. Repeating `close` is
+safe and finishes any interrupted subtree closure; closing a done task is an
+error. Closure does not require readiness, clean workspaces, or passing proof.
+
+A closed child no longer blocks its parent's proof or integration, but the
+parent must still meet its original outcome, scope, and proof. Closing a failed
+approach is not permission to drop a requirement; request approval for a scope
+change. Retained proof results are history, not successful completion.
+
+Closure changes only task states. Records, proof snapshots and results,
+branches, worktrees, and uncommitted changes are preserved. It neither reverts
+already-integrated work nor stops agents or processes; coordinate stopping any
+owner before closing its task. Do not run closure concurrently with other
+record writers or Git mutations.
+
+Subtree writes are not atomic as a group. The root is closed first, blocking
+execution, proof, integration, and new children throughout its subtree even if
+later writes fail or the command is interrupted. Retry `close` with the same
+ID to finish; do not edit records or reopen tasks to recover.
+
 ## Composition and responsibility
 
-- Store `parent`; derive children. Parents must exist and cannot be done when
-  adding children. Parent links must be acyclic.
+- Store `parent`; derive children. Parents must exist and cannot be done or
+  closed when adding children; no ancestor may be closed. Parent links must be
+  acyclic.
 - Dependencies are unique existing siblings; roots count as siblings.
   Dependencies must be acyclic. Cross-branch dependencies belong between parents,
   not their internals.
 - Scope conflicts require ordering. Unclear independence means sequential work.
-- State is `open → running → done`. Failed proof leaves the task running.
+- Success is `open → running → done`. Either `open` or `running` can instead
+  become terminal `closed`. Failed proof leaves the task running.
 - Requester approves intent and requested judgments; agent implements,
   decomposes, and verifies; tooling enforces transitions and stores results.
 
@@ -200,5 +235,5 @@ Stop for inspection when recovery is unclear.
 The CLI trusts recorded results; it does not authenticate reviewers or establish
 that a boolean has evidence. Proof covers committed content, not ignored files
 or external environment state. There is no automatic agent launcher, verifier,
-crash recovery, or enforcement outside the CLI. All commands other than `prove`
-exit 0 on success and 2 on error.
+general crash recovery, or enforcement outside the CLI. All commands other than
+`prove` exit 0 on success and 2 on error.

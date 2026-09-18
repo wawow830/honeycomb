@@ -1,5 +1,15 @@
 # Honeycomb
 
+Honeycomb is a system for software development with agents.
+
+## Goals
+- turbo speed development
+- without compromise of quality or taste
+- be as deterministic as possible
+- everything must follow a structure
+- stack agnostic
+- simplicity rules
+
 ## Install
 
 Requires Python 3.10+, Git, Unix, and a local `main` branch with a commit.

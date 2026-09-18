@@ -5,29 +5,26 @@ description: Integrate an exactly verified Honeycomb task into its target branch
 
 # Integrate
 
-Read [Honeycomb](../honeycomb/SKILL.md) for shared setup, boundaries, and
-composition rules. Complete [Prove](../prove/SKILL.md) before integration.
+Follow [Honeycomb's shared rules](../honeycomb/SKILL.md).
+Complete [Prove](../prove/SKILL.md) first.
 
-## Integrate the verified revision
+## Land the change
 
 ```sh
 python3 .agents/skills/honeycomb/scripts/honeycomb.py integrate example
 ```
 
-Requires a running task, all dependencies done, all children done or closed,
-all proof items true, clean workspaces, and unchanged proven commits.
-Fast-forwards the target to the exact proven task commit, then marks the task
-done. Roots target `main`; children target their parent's branch. Only integration
-completes a task and unblocks dependents. Branches and worktrees are retained.
+Requires a running task, done dependencies, done or closed children, all proof
+items true, clean workspaces, and unchanged proven commits.
 
-Do not bypass failed gates by editing records or manually moving the target.
-If the target advanced, combine it into the task branch and repeat
-[Prove](../prove/SKILL.md). Resolve conflicts in the task workspace, never by
-merging unproven work into the target.
+The CLI fast-forwards the target to the exact proven commit, then marks the task
+done. Only integration completes work and unblocks dependents.
+Branches and worktrees remain.
 
-## Interrupted integration
+## Recovery
 
-If integration advanced Git but could not save `done`, inspect the target,
-establish fresh proof, repeat verification, then retry integration. Never
-force-delete work or reset branches to make a retry pass. Stop for inspection
-when recovery is unclear.
+If the target advanced, merge it into the task workspace and repeat Prove.
+Never merge unproven work into the target to resolve conflicts.
+
+If Git advanced but saving `done` failed, inspect the target, establish fresh
+proof, repeat verification, and retry integration. Follow the shared recovery rules.

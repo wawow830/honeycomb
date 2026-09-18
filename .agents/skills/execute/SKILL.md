@@ -5,39 +5,35 @@ description: Execute an approved Honeycomb task in its isolated workspace. Use w
 
 # Execute
 
-Read [Honeycomb](../honeycomb/SKILL.md) for shared setup, boundaries, and
-composition rules. Start with an approved task from [Define](../define/SKILL.md).
+Follow [Honeycomb's shared rules](../honeycomb/SKILL.md).
+Start with an approved task from [Define](../define/SKILL.md).
 
-## Prepare the workspace
+## Start
 
 ```sh
 python3 .agents/skills/honeycomb/scripts/honeycomb.py execute example
 ```
 
-Requires an open task, completed dependencies, and a running parent unless root.
-Creates branch `honeycomb/<id>` and a worktree from the target's committed tip,
-marks the task running, and prints the absolute worktree path.
+The task must be open, its dependencies done, and its parent running, unless root.
+The CLI creates `honeycomb/<id>` and a worktree from the target's committed tip,
+marks the task running, and prints the absolute workspace path.
 
-**Continue work in that workspace.** The command does not launch an agent.
-The current agent owns the task unless explicitly delegated using available
-agent tools. Give a delegated owner the task ID, workspace, and the
-[Honeycomb](../honeycomb/SKILL.md) entry skill.
-Do not add a launcher or require multiple agents just to follow this workflow.
+**Work in that workspace.** You own the task unless you delegate it.
+Give a delegate the task ID, workspace, and Honeycomb skill.
+Do not add a launcher or require multiple agents for this workflow.
 
-## Implement or decompose
+## Build
 
-Implement directly, or use [Define](../define/SKILL.md) to create children and
-execute them through this same loop. Split only when parts can be proven and
-integrated separately and splitting allows useful parallelism or reduces risk—not
-merely by file, layer, or agent count. Parent completion waits for all children
-to be done or closed.
+Implement directly, or Define and Execute children through the same workflow.
+Split only when parts can be verified and integrated separately **and** splitting
+helps parallelism or reduces risk—not merely by file, layer, or agent count.
 
-When implementation is ready, continue with [Prove](../prove/SKILL.md).
-Failed proof or a merge conflict means fix within the running task, then repeat
-proof—not execute the task again.
+Finish or close all children, then continue with [Prove](../prove/SKILL.md).
 
-## Preparation failures
+## Recovery
 
-Preparation failures normally roll back new resources safely. Interruptions can
-leave partial state. Never force-delete work or reset branches to make a retry
-pass. Stop for inspection when recovery is unclear.
+Failed proof or merge conflict: fix in the running workspace, then repeat proof.
+Do not execute the task again.
+
+Preparation failures normally roll back new resources. Inspect partial state
+left by interruptions; follow the shared recovery rules.

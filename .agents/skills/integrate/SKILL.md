@@ -5,26 +5,32 @@ description: Integrate an exactly verified Honeycomb task into its target branch
 
 # Integrate
 
-Follow [Honeycomb's shared rules](../honeycomb/SKILL.md).
-Complete [Prove](../prove/SKILL.md) first.
+Land the exact verified revision.
 
-## Land the change
+## Steps
 
-```sh
-python3 .agents/skills/honeycomb/scripts/honeycomb.py integrate example
-```
+1. Complete **Prove**.
+2. Run `integrate <id>`.
 
-Requires a running task, done dependencies, done or closed children, all proof
-items true, clean workspaces, and unchanged proven commits.
+The CLI fast-forwards the target and marks the task done. Branches and worktrees remain.
 
-The CLI fast-forwards the target to the exact proven commit, then marks the task
-done. Only integration completes work and unblocks dependents.
-Branches and worktrees remain.
+## Rules
+
+Integration requires:
+
+- A running task.
+- Done dependencies.
+- Done or closed children.
+- Every proof item passing.
+- Clean workspaces.
+- Unchanged proven commits.
+
+Only integration completes a task and unblocks dependents.
 
 ## Recovery
 
-If the target advanced, merge it into the task workspace and repeat Prove.
-Never merge unproven work into the target to resolve conflicts.
+**Target advanced:** merge it into the task workspace and repeat Prove.
 
-If Git advanced but saving `done` failed, inspect the target, establish fresh
-proof, repeat verification, and retry integration. Follow the shared recovery rules.
+**Git advanced but saving `done` failed:** inspect the target, establish fresh proof, repeat verification, then retry integration.
+
+Never resolve conflicts by merging unproven work into the target.

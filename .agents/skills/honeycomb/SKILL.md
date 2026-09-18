@@ -5,66 +5,57 @@ description: Coordinate structured agent-assisted development with Honeycomb. Us
 
 # Honeycomb
 
-Deliver verified, accepted changes. Scale effort with risk, not ceremony.
+Deliver verified, accepted changes.
 
-| Step | Purpose |
-| --- | --- |
-| [Define](../define/SKILL.md) | Agree on outcome, scope, and proof. |
-| [Execute](../execute/SKILL.md) | Implement or delegate in a task workspace. |
-| [Prove](../prove/SKILL.md) | Verify the combined result. |
-| [Integrate](../integrate/SKILL.md) | Land the exact verified revision. |
+**Define → Execute → Prove → Integrate**
 
-Read the relevant skill before acting. Handle the CLI yourself; the requester
-should not need to operate it.
+## Steps
 
-## Shared rules
+1. **Define:** agree on outcome, scope, and proof.
+2. **Execute:** implement in a task workspace.
+3. **Prove:** verify the combined result.
+4. **Integrate:** land the exact verified revision.
 
-- Requester approves the task; subtasks within it need no separate approval.
-  Humans decide taste. Never grant approval on someone else's behalf.
-- Get approval to change outcome, scope, or proof; record it with Define.
-  Dependency-only changes within scope need no approval. Wait for required answers.
-- Never edit task records directly or bypass gates.
-- Order conflicting scopes. Unclear independence means sequential work.
-- Independent implementation may run in parallel; coordinate bookkeeping and Git
-  mutations. Do not run these concurrently with CLI operations. The CLI serializes
-  only integrations sharing a target.
-- Never force-delete work or reset branches to pass a retry. If recovery is unclear,
-  stop for inspection.
+Read the relevant skill before acting. Handle task bookkeeping yourself.
 
-## Task structure
-
-- Same workflow at every depth. Store `parent`; derive children.
-- New children need an existing parent that is neither done nor closed.
-  No ancestor may be closed.
-- Dependencies are unique existing siblings; roots count as siblings.
-  Cross-branch dependencies belong between parents. No parent or dependency cycles.
-- Success: `open → running → done`. Abandon: `open` or `running → closed`.
-  Failed proof stays running. Only `done` satisfies dependencies.
-
-## Setup and commands
-
-Requires Python 3.10+, Git, Unix locks, and a committed local `main`.
-Use a non-bare main checkout with a `.git` directory—not a separate Git directory.
-
-Version all five skills under `.agents/skills/`; ignore `/.honeycomb/`.
-Commit setup before execution. Preserve existing configuration and unrelated work.
-
-The CLI is `scripts/honeycomb.py` relative to this skill. Examples run from the
-checkout root; run inside the intended project or its worktree:
+All commands use:
 
 ```sh
-python3 .agents/skills/honeycomb/scripts/honeycomb.py ready
+python3 .agents/skills/honeycomb/scripts/honeycomb.py <command>
 ```
 
-The working directory selects the repository. All worktrees share the main
-checkout's `.honeycomb/tasks/` and `.honeycomb/worktrees/`; no local copies or
-environment variables are needed. `define` creates storage. On a fresh project,
-`ready` succeeds without output or writes.
+Run inside the intended project or its worktree. `ready` lists eligible tasks without changing them.
 
-## Limits
+## Rules
 
-The CLI trusts reported approvals and results; it does not authenticate evidence
-or control actions outside its gates. Proof covers commits, not ignored files or
-external state. There is no automatic launcher, verifier, or general crash recovery.
+- Requester approves the task. Subtasks within its boundaries need no separate approval.
+- Humans decide taste. Never grant approval for someone else.
+- Changes to outcome, scope, or proof need approval. Dependency-only changes within scope do not.
+- Never edit task records directly or bypass gates.
+- Order conflicting scopes. If independence is unclear, work sequentially.
+- Independent implementation may run concurrently. Coordinate bookkeeping and Git mutations; do not overlap them with CLI operations. Only integrations sharing a target are serialized.
 
-Exit codes: 0 success, 2 error. Prove also returns 1 for incomplete or failed proof.
+**Task structure**
+- Store `parent`; derive children.
+- Parents must exist. New children cannot have a done or closed parent, or a closed ancestor.
+- Dependencies must be unique existing siblings. Roots count as siblings.
+- No parent or dependency cycles. Put cross-branch dependencies between parents.
+- Success: `open → running → done`.
+- Abandonment: `open` or `running → closed`.
+- Only `done` satisfies dependencies.
+
+**Setup**
+- Requires Python 3.10+, Git, Unix locks, and a committed local `main`.
+- Requires a non-bare main checkout with a `.git` directory.
+- Version all five skills; ignore `/.honeycomb/`. Commit setup before execution without disturbing existing configuration or unrelated work.
+- All worktrees share the main checkout’s task records and workspaces.
+
+**Limits**
+- The CLI trusts reported approvals and results. It does not authenticate evidence or control actions outside its gates.
+- Proof covers commits, not ignored files or external state.
+- No automatic launcher, verifier, or general crash recovery.
+- Exit codes: `0` success, `2` error. Prove also uses `1` for incomplete or failed proof.
+
+## Recovery
+
+Never force-delete work or reset branches to pass a retry. If recovery is unclear, stop for inspection.

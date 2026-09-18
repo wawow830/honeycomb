@@ -5,49 +5,38 @@ description: Verify a Honeycomb task against its agreed proof conditions and rec
 
 # Prove
 
-Follow [Honeycomb's shared rules](../honeycomb/SKILL.md).
+Verify the combined result against the agreement.
 
-## 1. Prepare
+## Steps
 
-Wait for dependencies to be done and children to be done or closed.
-Commit the task's changes and include the current target commit in its branch:
+1. Finish dependencies and finish or close children.
+2. Commit changes and include the current target commit:
+   - Root: `refs/heads/main`.
+   - Child: `refs/heads/honeycomb/<parent>`.
+3. Run `prove <id>` **before verification**.
+4. Perform every displayed check in the task workspace.
+5. Record each observed result:
 
-- Root target: `refs/heads/main`.
-- Child target: `refs/heads/honeycomb/<parent>`.
-
-Merge and resolve conflicts in the task workspace—not the target.
-
-## 2. Bind, then verify
-
-Run **before verification** to bind proof to clean task and target commits:
-
-```sh
-python3 .agents/skills/honeycomb/scripts/honeycomb.py prove example
+```text
+prove <id> --item <number> --result true|false|null
 ```
 
-Perform every displayed check in the task workspace. The CLI displays instructions;
-it does not execute them. Check the claimed behavior, not a substitute.
-Verify the combined outcome: children's passes do not prove their parent.
-For human judgments, ask in the conversation and wait for the answer.
+When every condition passes, continue with **Integrate**.
 
-## 3. Record
+## Rules
 
-Record each observed result by its displayed 1-based item number:
+- Resolve merges in the task workspace, never the target.
+- The CLI binds proof to clean task and target commits; it does not execute checks.
+- Check the claimed behavior, not a substitute.
+- Children’s passes do not prove the parent.
+- Ask for required human judgments and wait for answers.
+- `true` means passed or approved; `false` means failed or rejected; `null` means unanswered or unproven.
+- Finished implementation is not proof.
 
-```sh
-python3 .agents/skills/honeycomb/scripts/honeycomb.py prove example --item 1 --result true
-```
+## Recovery
 
-Use `true` for passed or approved, `false` for failed or rejected, and `null` for
-unproven or unanswered. Implementation being finished is not a pass.
-When all conditions pass, continue with [Integrate](../integrate/SKILL.md).
+Dirty work or changed task/target commits invalidate every result, including human judgments.
 
-## Retry and exit codes
+Commit, include the current target, bind again, and repeat verification. Never restore old results without repeating their checks.
 
-Dirty work or changed task/target commits invalidate all results, including human
-judgments. Commit changes, include the current target, bind again, and repeat
-verification. Never restore old booleans without repeating checks and judgments.
-
-Exit codes: **0** all passed; **1** incomplete or failed; **2** error or stale result.
-Exit 1 while collecting proof is normal; it does not mean recording failed.
-For failed checks, follow [Execute's recovery guidance](../execute/SKILL.md#recovery).
+Exit codes: `0` all passed, `1` incomplete or failed, `2` error or stale result. Exit `1` does not mean recording failed.

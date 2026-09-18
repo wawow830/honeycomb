@@ -5,98 +5,86 @@ description: Define or revise Honeycomb task agreements. Use when creating tasks
 
 # Define
 
-Follow [Honeycomb's shared rules](../honeycomb/SKILL.md).
+Agree on what must become true, what may change, and how to verify it.
 
-## Agree
+## Steps
 
-Inspect the project, then agree on:
+### 1. Agree
+
+Inspect the project. Establish:
 
 - **Outcome:** what must become true.
-- **Scope:** what may change and what must not.
-- **Proof:** conditions and how each will be checked.
+- **Scope:** what may change—and what must not.
+- **Proof:** conditions and their verification.
 
-Resolve consequential unknowns or have the requester explicitly accept them.
-Get overall task approval before execution. The CLI records agreements, not approval.
+Resolve consequential unknowns or get explicit acceptance of them. Obtain task approval before execution.
 
-## Create
+### 2. Create
 
-Send exactly these six fields, using a task-specific agreement:
+Run `define` with exactly these six fields on stdin:
 
-```sh
-python3 .agents/skills/honeycomb/scripts/honeycomb.py define <<'JSON'
+```json
 {
   "id": "example",
   "parent": null,
   "depends_on": [],
   "outcome": "Developers can list ready tasks.",
-  "scope": "Read records only; no dispatch or state changes.",
-  "proof": [
-    {
-      "condition": "Only eligible tasks appear, sorted by ID.",
-      "verification": "Exercise eligible and blocked tasks; compare the output with expected IDs."
-    }
-  ]
+  "scope": "Read records only; no state changes.",
+  "proof": [{
+    "condition": "Only eligible tasks appear, sorted by ID.",
+    "verification": "Compare output against expected IDs for eligible and blocked tasks."
+  }]
 }
-JSON
 ```
 
-IDs: 1–128 ASCII letters, digits, `_` or `-`, starting with a letter or digit.
-Outcome, scope, condition, and verification must be nonblank. Include at least
-one proof item, with exactly `condition` and `verification`.
+Continue with **Execute**.
 
-The CLI sets `state: "open"` and proof results to `null`; do not supply managed
-fields. Existing tasks are never overwritten. Continue with [Execute](../execute/SKILL.md).
+### Amend
 
-## Amend an agreement
+Coordinate with the owner. Run `amend <id>` with a nonblank reason and changed fields:
 
-Coordinate with the owner; follow the shared approval rules.
-Send a nonblank `reason` and changes to `outcome`, `scope`, `depends_on`, or `proof`.
-Omitted fields stay unchanged. Lists replace previous lists. Proof has no results.
-
-```sh
-python3 .agents/skills/honeycomb/scripts/honeycomb.py amend example <<'JSON'
+```json
 {
-  "reason": "The original prerequisite was abandoned; use its replacement.",
+  "reason": "Replace an abandoned prerequisite.",
   "depends_on": ["replacement"]
 }
-JSON
 ```
 
-Define the replacement sibling first.
+Define replacement dependencies first. Review affected work and related tasks.
 
-- Amend only open or running tasks without a closed ancestor.
-- IDs, parents, and managed fields cannot change. Invalid or no-op edits write nothing.
-- **Every amendment clears proof and its commit binding**, even without code changes.
-  Bind again with
-  [Prove](../prove/SKILL.md); repeat all checks and human judgments.
+### Close
+
+Stop the owner’s work, then run `close <id>`.
+
+Closure abandons the task and unfinished descendants. It preserves all work and does not stop processes or revert code.
+
+## Rules
+
+**Creation**
+- IDs: 1–128 ASCII letters, digits, `_`, or `-`; start with a letter or digit.
+- Outcome, scope, condition, and verification must be nonblank.
+- Include at least one proof item with exactly `condition` and `verification`.
+- The CLI initializes state and results. Do not supply managed fields.
+- Existing tasks are never overwritten. The CLI does not record approval.
+
+**Amendment**
+- Only open or running tasks without closed ancestors can change.
+- Only `outcome`, `scope`, `depends_on`, and `proof` are editable.
+- Omitted fields stay unchanged; lists replace previous lists. Do not supply proof results.
+- Every amendment clears proof and its commit binding. Repeat all checks and human judgments.
 - New unfinished dependencies pause affected work and block proof and integration.
-- Work is preserved; `amendments` retains the reason and previous record atomically,
-  without nested history. Historical proof cannot authorize integration.
+- The previous record and reason are retained atomically, without nested history.
+- Invalid or no-op amendments write nothing.
+- Related tasks and Git work are not changed automatically.
 
-Amendment does not merge, undo, stop agents, or update related tasks.
-Review existing work and related tasks; amend or close those tasks separately if needed.
+**Closure**
+- Done descendants stay done. Outside dependents remain blocked.
+- Closed children stop blocking their parent; the parent’s requirements still apply.
+- Closure is terminal. Replacement work needs a new task ID and agreement.
+- Records, proof history, branches, worktrees, and dirty work remain.
 
-## Close abandoned work
+## Recovery
 
-Coordinate stopping its owner first:
+Closing a done task is an error. Otherwise closure needs no readiness, clean workspace, or passing proof.
 
-```sh
-python3 .agents/skills/honeycomb/scripts/honeycomb.py close example
-```
-
-- Closes the task and unfinished descendants. Done descendants stay done;
-  outside dependents stay blocked. Amend dependents if needed.
-- Closed children no longer block the parent. Its requirements still apply.
-- Preserves records, proof history, branches, worktrees, and dirty work.
-  Does not revert code or stop processes.
-- Closure is terminal: no execution, proof, integration, new children, or ID reuse.
-  Replacement work needs a new task and agreement.
-
-### Closure recovery
-
-Closing done tasks is an error. Otherwise closure needs no readiness, clean work,
-or passing proof, and repeating it is safe.
-
-Subtree closure is not atomic. The root closes first, blocking execution, proof,
-integration, and new children below it. After interruption, repeat `close` with
-the same ID. Do not edit records or reopen tasks.
+Closure is not atomic: the root closes first, blocking work below it. After interruption, repeat `close <id>`. Do not reopen tasks or edit records.

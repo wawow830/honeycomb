@@ -1,4 +1,4 @@
-"""Define, execute, prove, integrate, and close tasks. Standard library only."""
+"""Define, amend, execute, prove, integrate, and close tasks. Standard library only."""
 
 import argparse
 from contextlib import contextmanager
@@ -13,6 +13,7 @@ import tempfile
 
 STATES = {"open", "running", "done", "closed"}
 TASK_ID = r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}"
+AMENDABLE = ("outcome", "scope", "depends_on", "proof")
 
 
 def load_tasks(directory, *, paths=None):
@@ -139,6 +140,23 @@ def validate_proof(proof, *, stored=False):
             raise ValueError(f"proof item {number}: result must be null, true, or false")
 
 
+def validate_task_content(task, *, stored=False):
+    """Share agreement validation between definition and amendment."""
+    for field in ("outcome", "scope"):
+        value = task.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{field} must be a nonempty string")
+    dependencies = task.get("depends_on")
+    if not isinstance(dependencies, list) or any(
+        not isinstance(dependency, str) or not dependency or any(c.isspace() for c in dependency)
+        for dependency in dependencies
+    ):
+        raise ValueError("depends_on must be a list of task IDs")
+    if len(set(dependencies)) != len(dependencies):
+        raise ValueError("duplicate dependency")
+    validate_proof(task.get("proof"), stored=stored)
+
+
 def define_task(directory, task):
     """Validate an approved task and store it without replacing existing records."""
     fields = {"id", "outcome", "scope", "parent", "depends_on", "proof"}
@@ -147,19 +165,7 @@ def define_task(directory, task):
     task_id = task["id"]
     if not isinstance(task_id, str) or not re.fullmatch(TASK_ID, task_id):
         raise ValueError("id must be 1–128 letters, digits, underscores, or hyphens; start with a letter or digit")
-    for field in ("outcome", "scope"):
-        if not isinstance(task[field], str) or not task[field].strip():
-            raise ValueError(f"{field} must be a nonempty string")
-    dependencies = task["depends_on"]
-    if not isinstance(dependencies, list) or any(
-        not isinstance(dependency, str) or not dependency or any(c.isspace() for c in dependency)
-        for dependency in dependencies
-    ):
-        raise ValueError("depends_on must be a list of task IDs")
-    if len(set(dependencies)) != len(dependencies):
-        raise ValueError("duplicate dependency")
-    proof = task["proof"]
-    validate_proof(proof)
+    validate_task_content(task)
 
     tasks = load_tasks(directory) if directory.exists() else {}
     ready_tasks(tasks)
@@ -168,7 +174,7 @@ def define_task(directory, task):
     record = {
         **task,
         "state": "open",
-        "proof": [{**item, "result": None} for item in proof],
+        "proof": [{**item, "result": None} for item in task["proof"]],
     }
     ready_tasks({**tasks, task_id: record})
     parent = record["parent"]
@@ -182,6 +188,56 @@ def define_task(directory, task):
     # Exclusive creation protects existing paths, even if filenames differ from IDs.
     with (directory / f"{task_id}.json").open("x", encoding="utf-8") as output:
         output.write(content)
+
+
+def amend_task(directory, task_id, amendment):
+    """Atomically revise an active task, retain its history, and clear proof."""
+    if not isinstance(amendment, dict) or set(amendment) - {*AMENDABLE, "reason"}:
+        raise ValueError("amendment accepts only: reason, outcome, scope, depends_on, proof")
+    reason = amendment.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("reason must be a nonempty string")
+    changes = {key: value for key, value in amendment.items() if key != "reason"}
+    if not changes:
+        raise ValueError("amendment must include at least one editable field")
+
+    paths = {}
+    tasks = load_tasks(directory, paths=paths)
+    ready_tasks(tasks)
+    if task_id not in tasks:
+        raise ValueError(f"unknown task: {task_id}")
+    task = tasks[task_id]
+    if task["state"] not in {"open", "running"}:
+        raise ValueError(f"task is not open or running: {task_id}")
+    ancestor = closed_ancestor(task, tasks)
+    if ancestor is not None:
+        raise ValueError(f"ancestor is closed: {ancestor}")
+    validate_task_content(task, stored=True)
+    history = task.get("amendments", [])
+    if not isinstance(history, list):
+        raise ValueError("amendments must be a list")
+
+    current = {key: task[key] for key in AMENDABLE}
+    current["proof"] = [
+        {key: item[key] for key in ("condition", "verification")}
+        for item in task["proof"]
+    ]
+    updated = {**current, **changes}
+    validate_task_content(updated)
+    if updated == current:
+        raise ValueError("amendment makes no changes")
+    record = {
+        **task, **updated,
+        "proof": [{**item, "result": None} for item in updated["proof"]],
+        "proof_snapshot": None,
+        "amendments": [*history, {
+            "reason": reason,
+            # Keep each preceding record once, rather than nesting its history.
+            "previous": {key: value for key, value in task.items() if key != "amendments"},
+        }],
+    }
+    ready_tasks({**tasks, task_id: record})
+    replace_task(paths[task_id], record)
 
 
 def git(repository, *arguments):
@@ -366,13 +422,16 @@ def close_task(directory, task_id):
 
 
 def require_provable(task, tasks):
-    """Require an active running task, settled children, and valid proof structure."""
+    """Require a running task, done dependencies, settled children, and valid proof."""
     task_id = task["id"]
     if task["state"] != "running":
         raise ValueError(f"task is not running: {task_id}")
     ancestor = closed_ancestor(task, tasks)
     if ancestor is not None:
         raise ValueError(f"ancestor is closed: {ancestor}")
+    # A running task can gain unfinished dependencies through amendment.
+    if any(tasks[dependency]["state"] != "done" for dependency in task["depends_on"]):
+        raise ValueError(f"task has unfinished dependencies: {task_id}")
     if any(
         child.get("parent") == task_id and child["state"] not in {"done", "closed"}
         for child in tasks.values()
@@ -550,6 +609,8 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("ready", help="list ready task IDs")
     commands.add_parser("define", help="define a task from JSON stdin")
+    amend = commands.add_parser("amend", help="amend an open/running task from JSON stdin")
+    amend.add_argument("id", help="task ID")
     execute = commands.add_parser("execute", help="prepare a ready task's branch and worktree")
     execute.add_argument("id", help="task ID")
     prove = commands.add_parser("prove", help="show proof or record one observed result")
@@ -568,6 +629,10 @@ def main():
         if args.command == "define":
             task = json.load(sys.stdin, object_pairs_hook=unique_object, parse_constant=invalid_constant)
             define_task(directory, task)
+            return 0
+        if args.command == "amend":
+            amendment = json.load(sys.stdin, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+            amend_task(directory, args.id, amendment)
             return 0
         if args.command == "execute":
             print(execute_task(directory, args.id))

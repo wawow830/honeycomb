@@ -61,7 +61,8 @@ Outcome, scope, condition, and verification must be nonblank. Proof must contain
 at least one item with exactly `condition` and `verification`.
 
 Tooling initializes `state: "open"` and each proof `result: null`. Do not supply
-managed fields or edit task records directly.
+managed fields or edit task records directly. Use `amend` for explicit changes;
+plans may evolve without silently changing the agreement or retaining stale proof.
 
 ## 1. Define
 
@@ -110,9 +111,10 @@ count. Parent completion waits for all children to be done or closed.
 
 ## 3. Prove
 
-Finish or explicitly close all children, commit the task's changes, and include
-the current target commit in the task branch. Resolve any conflicts in the task
-workspace, not by merging unproven work into the target.
+Wait for all dependencies to be done, finish or explicitly close all children,
+commit the task's changes, and include the current target commit in the task
+branch. Resolve any conflicts in the task workspace, not by merging unproven
+work into the target.
 
 ```sh
 python3 .agents/skills/honeycomb/scripts/honeycomb.py prove example
@@ -157,14 +159,59 @@ proof; it does not mean that recording an individual result failed.
 python3 .agents/skills/honeycomb/scripts/honeycomb.py integrate example
 ```
 
-Requires a running task, all children done or closed, all proof items true, clean
-workspaces, and unchanged proven commits. Fast-forwards the target to the exact
-proven task commit, then marks the task done. Roots target `main`; children
+Requires a running task, all dependencies done, all children done or closed,
+all proof items true, clean workspaces, and unchanged proven commits.
+Fast-forwards the target to the exact proven task commit, then marks the task
+done. Roots target `main`; children
 target their parent's branch. Only integration completes a task and unblocks
 dependents. Branches and worktrees are retained.
 
 Do not bypass failed gates by editing records or manually moving the target.
 If the target advanced, combine it into the task branch and repeat proof.
+
+## Amending a task
+
+Use `amend` to revise an open or running task without replacing its identity or
+workspace. Obtain requester approval before changing outcome, scope, or proof.
+Dependency-only changes within the approved boundaries need no new approval.
+The CLI records the amendment; it does not obtain or authenticate approval.
+
+Send a nonblank `reason` and one or more of `outcome`, `scope`, `depends_on`, and
+`proof`. Omitted fields stay unchanged. Lists are replaced in full; proof items
+use the same `condition` and `verification` shape as `define`, without results.
+
+For example, after defining a replacement prerequisite with the same parent:
+
+```sh
+python3 .agents/skills/honeycomb/scripts/honeycomb.py amend example <<'JSON'
+{
+  "reason": "The original prerequisite was abandoned; use its replacement.",
+  "depends_on": ["replacement"]
+}
+JSON
+```
+
+- IDs, parents, states, and other managed fields cannot be amended. Done and
+  closed tasks, and tasks beneath a closed ancestor, cannot be amended.
+- Dependencies must still be unique existing siblings and must not form a cycle.
+  Only `done` satisfies a dependency; referencing a closed task leaves work blocked.
+- Every amendment clears **all** proof results and the commit binding, including
+  human judgments, even if the code did not change. Run `prove` to bind a fresh
+  snapshot, then repeat all checks and requested judgments before integration.
+- The task's `amendments` list retains each reason and the entire preceding record
+  under `previous`, excluding that record's amendment history to avoid nesting.
+  Old proof is historical only; it never authorizes current integration.
+- Record changes and history are written atomically. Invalid input and amendments
+  that change nothing are rejected without writes.
+
+Coordinate with the task owner before amending. If a running task gains an
+unfinished dependency, pause affected work until that dependency is done;
+`prove` and `integrate` refuse while it remains unfinished. Incorporate the
+current target before fresh proof as usual. Amendment does not merge or undo
+code, stop agents, or alter children or dependents. Review existing work and
+child plans against the revised agreement; amend or close them explicitly if needed.
+Branches, workspaces, and dirty work are preserved. Do not amend concurrently
+with other record writers or Git mutations.
 
 ## Closing a task
 
@@ -176,7 +223,8 @@ python3 .agents/skills/honeycomb/scripts/honeycomb.py close example
 
 `close` marks an open or running task and all its unfinished descendants
 `closed`. Completed descendants remain `done`. Dependents outside the subtree
-are untouched and remain blocked: only `done` satisfies a dependency.
+are untouched and remain blocked: only `done` satisfies a dependency. Use
+`amend` to redirect an active dependent to a replacement prerequisite if needed.
 
 Closed tasks are terminal: no execution, proof, integration, new children, or
 ID reuse. A replacement needs a new task and agreement. Repeating `close` is
@@ -216,8 +264,9 @@ ID to finish; do not edit records or reopen tasks to recover.
 ## Boundaries and recovery
 
 Inside approved boundaries, proceed. If outcome, scope, or proof must change,
-request approval. There is no CLI amendment command; stop rather than silently
-editing the agreement or bypassing its gates.
+request approval, then record the change with `amend`. Never silently edit the
+agreement or bypass its gates. Dependency-only plan changes within the approved
+boundaries may be amended without new approval.
 
 Failed proof or a merge conflict means fix within the running task, then repeat
 proof—not execute the task again. Required approval without an answer means wait.

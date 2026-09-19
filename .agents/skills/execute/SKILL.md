@@ -11,8 +11,8 @@ Implement an approved task in its workspace.
 
 1. Run `execute <id>`.
 2. Work in the printed workspace.
-3. Implement directly, or define and execute children.
-4. Finish or close every child, then continue with **Prove**.
+3. Implement directly, or define and execute children. Show consequential design choices early; align with the requester before hardening them.
+4. Test throughout implementation. Finish or close every child, then continue with **Prove** for final verification.
 
 You own the task unless you delegate it. Give delegates the task ID, workspace, and Honeycomb skill.
 

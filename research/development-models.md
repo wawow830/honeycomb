@@ -4,6 +4,36 @@ A proposal under the [agreed brief](../BRIEF.md), not an agreed architecture. Th
 
 “Stewardship,” “initiatives,” and “negotiation” can coexist. They become distinguishable proposals only when they change who can redirect work, what must be reconciled, and what happens when people or agents disagree.
 
+## Candidate engineering model
+
+Develop runnable software alongside revisable examples, domain rules, and explanations of consequential design choices. These are working materials, not a specification phase. People and agents can investigate, model, implement, and question them directly.
+
+Participants use real cases to identify concepts, state changes, and rules, then decide how to represent them in data, interfaces, and behavior. Building exposes missing distinctions and expensive assumptions. For consequential uncertainties, agents can construct contrasting implementations or targeted experiments; routine changes need no such ceremony.
+
+```mermaid
+flowchart TD
+    Reality["Real needs, examples, constraints"] --> Understanding
+
+    subgraph Shared["People and agents work on all three"]
+        Understanding["Understanding the problem<br/>Concepts · rules · open questions"]
+        Design["Design<br/>Data · interfaces · trade-offs"]
+        Software["Running software"]
+
+        Understanding <-->|Shape and challenge| Design
+        Design <-->|Build and revise| Software
+    end
+
+    Software --> Evidence["Tests, actual use, operating observations"]
+
+    Evidence -->|Question the interpretation| Understanding
+    Evidence -->|Expose an unsuitable approach| Design
+    Evidence -->|Reveal implementation defects| Software
+```
+
+Unexpected behavior does not automatically mean “patch the code.” Participants investigate whether the misunderstanding is in the problem, design, or implementation. Tests derived from a mistaken interpretation cannot settle that question alone: original observations and affected people remain independent sources. Revising an accepted expectation still requires the relevant authority.
+
+The proposed benefit is less repeated reconstruction of how needs, design choices, and implementation relate. The unsupported assumption is that agents can help maintain these connections accurately and cheaply enough to improve subsequent work. A convincing explanation of incorrect software would add false confidence, not value. No complete dependency map or exhaustive documentation is assumed.
+
 ## A common work mechanism
 
 This mechanism supports discovery, implementation, and operation without requiring them to occur in that order. A prototype can use existing agents, versioned project records, runnable workspaces, and operational tools. It does not require permanent agent conversations or a new model capability.

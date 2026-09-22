@@ -4,6 +4,8 @@ Research notes, 2026-09-22. This is an evidence review, not a Honeycomb architec
 
 Question: what does research on actual development reveal that task-oriented coding-agent demonstrations and benchmarks miss?
 
+Follow-up: [Development beyond isolated agent tasks](development-beyond-tasks.md) extends this review into discovery, coordination, evolution, and recovery.
+
 ## 1. Requirements are developed during the interaction
 
 **Evidence.** SWE-chat records roughly 6,000 real sessions. Its annotations classify understanding existing code as a more frequent specific intent than creating code (19.0% versus 13.4% of prompts). In its Claude Code analysis, users push back after about 39% of turns; proactive clarification occurs in only 1.1–2.6% of turns across coding modes. People remain actively involved even when agents write virtually all committed code. [1]
